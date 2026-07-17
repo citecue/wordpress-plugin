@@ -1,0 +1,249 @@
+<?php
+/**
+ * The AI-crawler middleware. Runs on the frontend only: when a request's
+ * User-Agent matches a known AI crawler, the optimized version of the page is
+ * fetched from CiteCue's delivery API and served in place of the theme output.
+ * Every other request — and any miss, timeout, or error — is completely
+ * untouched, so a CiteCue outage leaves the site behaving exactly as before.
+ *
+ * @package Citecue
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Serves optimized pages to AI crawlers.
+ */
+class Citecue_Proxy {
+
+	/**
+	 * Plugin container.
+	 *
+	 * @var Citecue_Plugin
+	 */
+	private $plugin;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param Citecue_Plugin $plugin Plugin container.
+	 */
+	public function __construct( Citecue_Plugin $plugin ) {
+		$this->plugin = $plugin;
+	}
+
+	/**
+	 * Hooks the interceptor. Priority 0 so it runs before canonical redirects:
+	 * crawlers get the exact URL they asked for, mirroring the CiteCue
+	 * Cloudflare Worker's behavior.
+	 *
+	 * @return void
+	 */
+	public function register() {
+		add_action( 'template_redirect', array( $this, 'maybe_serve' ), 0 );
+	}
+
+	/**
+	 * Serves the optimized page when this is an AI-crawler request with
+	 * servable content; returns silently otherwise.
+	 *
+	 * @return void
+	 */
+	public function maybe_serve() {
+		if ( ! $this->is_eligible_request() ) {
+			return;
+		}
+
+		$settings = $this->plugin->settings;
+		if ( ! $settings->get( 'serve_enabled' ) || ! $settings->is_delivery_configured() ) {
+			return;
+		}
+
+		$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
+		$crawler    = $this->plugin->crawlers->match( $user_agent );
+		if ( null === $crawler ) {
+			return;
+		}
+
+		$url = $this->current_url();
+		if ( '' === $url ) {
+			return;
+		}
+
+		/**
+		 * Filters whether to serve optimized content for this crawler request.
+		 *
+		 * @param bool   $should_serve Default true.
+		 * @param string $crawler      Matched UA token.
+		 * @param string $url          Absolute request URL.
+		 */
+		if ( ! apply_filters( 'citecue_should_serve', true, $crawler, $url ) ) {
+			return;
+		}
+
+		$path  = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$cache = $this->plugin->cache;
+
+		// Recent miss for this URL: skip the API for a minute (mirrors the
+		// API's own max-age=60 on the miss sentinel).
+		if ( $cache->is_recent_miss( $url ) ) {
+			return;
+		}
+
+		$cached = $cache->get_page( $url );
+
+		// Circuit open (recent timeout/auth failure): no API calls. Serve the
+		// stale cached copy when we have one, otherwise pass through.
+		if ( $cache->is_circuit_open() ) {
+			if ( $cached ) {
+				$this->serve( $cached['body'], $cached['mode'], true );
+			}
+			return;
+		}
+
+		$response = $this->plugin->api->get_page( $url, $crawler, $cached ? $cached['etag'] : '' );
+
+		if ( is_wp_error( $response ) ) {
+			// Timeout / connection failure: open the circuit and degrade.
+			$cache->trip_circuit();
+			$this->plugin->activity->record( $crawler, $path, $cached ? 'served-stale' : 'error' );
+			if ( $cached ) {
+				$this->serve( $cached['body'], $cached['mode'], true );
+			}
+			return;
+		}
+
+		switch ( $response['status'] ) {
+			case 200:
+				$cache->set_page( $url, $response['body'], $response['etag'], $response['mode'] );
+				$this->plugin->activity->record( $crawler, $path, 'served' );
+				$this->serve( $response['body'], $response['mode'], false );
+				return; // Unreachable (serve exits); defensive.
+
+			case 304:
+				// Our cached body is current; CiteCue already counted this as served.
+				if ( $cached ) {
+					$cache->touch_page( $url );
+					$this->plugin->activity->record( $crawler, $path, 'served' );
+					$this->serve( $cached['body'], $cached['mode'], false );
+				}
+				return;
+
+			case 401:
+				// Bad/revoked API key: remember it for the admin notice and
+				// back off for a while — retrying immediately cannot help.
+				update_option( 'citecue_auth_failed', time(), false );
+				$cache->trip_circuit( Citecue_Cache::AUTH_CIRCUIT_TTL );
+				return;
+
+			case 404:
+				// Miss sentinel: CiteCue recorded the passthrough hit server-side.
+				delete_option( 'citecue_auth_failed' );
+				$cache->set_miss( $url );
+				$this->plugin->activity->record( $crawler, $path, 'passthrough' );
+				return;
+
+			default:
+				// Unexpected server state: brief back-off, degrade gracefully.
+				$cache->trip_circuit();
+				$this->plugin->activity->record( $crawler, $path, $cached ? 'served-stale' : 'error' );
+				if ( $cached ) {
+					$this->serve( $cached['body'], $cached['mode'], true );
+				}
+				return;
+		}
+	}
+
+	/**
+	 * Whether this request is one the proxy may intercept: a plain frontend
+	 * GET from an anonymous visitor. Everything else belongs to WordPress.
+	 *
+	 * @return bool
+	 */
+	private function is_eligible_request() {
+		if ( ! isset( $_SERVER['REQUEST_METHOD'] ) || 'GET' !== $_SERVER['REQUEST_METHOD'] ) {
+			return false;
+		}
+		if ( is_admin() || is_user_logged_in() ) {
+			return false;
+		}
+		if ( is_feed() || is_robots() || is_trackback() || is_preview() || is_embed() ) {
+			return false;
+		}
+		if ( is_customize_preview() ) {
+			return false;
+		}
+		if ( function_exists( 'is_favicon' ) && is_favicon() ) {
+			return false;
+		}
+		if ( '' !== (string) get_query_var( 'sitemap' ) ) {
+			return false;
+		}
+		if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) {
+			return false;
+		}
+		if ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) {
+			return false;
+		}
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return false;
+		}
+		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+			return false;
+		}
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * The absolute URL of the current request. CiteCue normalizes it
+	 * server-side (scheme/www/trailing-slash/tracking params).
+	 *
+	 * @return string
+	 */
+	private function current_url() {
+		if ( ! isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
+			return '';
+		}
+		$scheme = is_ssl() ? 'https' : 'http';
+		$host   = sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) );
+		$uri    = wp_unslash( $_SERVER['REQUEST_URI'] );
+		return esc_url_raw( $scheme . '://' . $host . $uri );
+	}
+
+	/**
+	 * Emits the optimized document and ends the request. Stamps the
+	 * `X-Citecue: served` header CiteCue's install verifier looks for, and
+	 * tells full-page cache plugins not to store this bot-only response.
+	 *
+	 * @param string $body  Optimized HTML document.
+	 * @param string $mode  Optimization mode (enriched|rewrite).
+	 * @param bool   $stale Whether this body was served past its ETag window.
+	 * @return void
+	 */
+	private function serve( $body, $mode, $stale ) {
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+
+		status_header( 200 );
+		header( 'Content-Type: text/html; charset=utf-8' );
+		header( 'Cache-Control: private, no-store' );
+		header( 'X-Citecue: served' );
+		if ( '' !== $mode ) {
+			header( 'X-Citecue-Mode: ' . sanitize_key( $mode ) );
+		}
+		if ( $stale ) {
+			header( 'X-Citecue-Cache: stale' );
+		}
+
+		// Full HTML document generated by CiteCue for this site's own page —
+		// output verbatim by design (escaping would destroy the document).
+		echo $body; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		exit;
+	}
+}

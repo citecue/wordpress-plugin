@@ -1,0 +1,191 @@
+<?php
+/**
+ * Transient-backed caches for delivered content, plus the failure circuit
+ * breaker that keeps a CiteCue outage invisible to the site.
+ *
+ * @package Citecue
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Delivery cache.
+ */
+class Citecue_Cache {
+
+	/** Cached optimized bodies are kept a day so they can be served stale on API errors. */
+	const BODY_TTL = DAY_IN_SECONDS;
+
+	/** Negative (miss) cache TTL — mirrors the API's `max-age=60` on the miss sentinel. */
+	const MISS_TTL = MINUTE_IN_SECONDS;
+
+	/** How long the circuit stays open after a timeout/server error. */
+	const CIRCUIT_TTL = MINUTE_IN_SECONDS;
+
+	/** Longer circuit for auth failures — retrying with a bad key can't help quickly. */
+	const AUTH_CIRCUIT_TTL = 10 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Cache-key salt; rotating it is our "flush" (old transients simply expire).
+	 *
+	 * @return string
+	 */
+	private function salt() {
+		$salt = get_option( 'citecue_cache_salt', '' );
+		if ( ! is_string( $salt ) || '' === $salt ) {
+			$salt = substr( md5( (string) wp_rand() . microtime() ), 0, 8 );
+			update_option( 'citecue_cache_salt', $salt );
+		}
+		return $salt;
+	}
+
+	/**
+	 * Transient key for a page URL.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return string
+	 */
+	private function page_key( $url ) {
+		return 'citecue_pg_' . md5( $this->salt() . '|' . $url );
+	}
+
+	/**
+	 * Cached optimized page, or null.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return array{body:string,etag:string,mode:string,cached_at:int}|null
+	 */
+	public function get_page( $url ) {
+		$hit = get_transient( $this->page_key( $url ) );
+		return ( is_array( $hit ) && isset( $hit['body'] ) ) ? $hit : null;
+	}
+
+	/**
+	 * Stores an optimized page body.
+	 *
+	 * @param string $url  Absolute page URL.
+	 * @param string $body Optimized HTML.
+	 * @param string $etag Response ETag.
+	 * @param string $mode Optimization mode (enriched|rewrite).
+	 * @return void
+	 */
+	public function set_page( $url, $body, $etag, $mode ) {
+		set_transient(
+			$this->page_key( $url ),
+			array(
+				'body'      => $body,
+				'etag'      => $etag,
+				'mode'      => $mode,
+				'cached_at' => time(),
+			),
+			self::BODY_TTL
+		);
+	}
+
+	/**
+	 * Refreshes the stored timestamp after a 304 revalidation.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function touch_page( $url ) {
+		$hit = $this->get_page( $url );
+		if ( $hit ) {
+			$hit['cached_at'] = time();
+			set_transient( $this->page_key( $url ), $hit, self::BODY_TTL );
+		}
+	}
+
+	/**
+	 * Whether this URL recently returned the miss sentinel.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return bool
+	 */
+	public function is_recent_miss( $url ) {
+		return (bool) get_transient( 'citecue_ms_' . md5( $this->salt() . '|' . $url ) );
+	}
+
+	/**
+	 * Records a miss so repeated crawler hits on the same unoptimized URL
+	 * skip the API for a minute.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function set_miss( $url ) {
+		set_transient( 'citecue_ms_' . md5( $this->salt() . '|' . $url ), 1, self::MISS_TTL );
+	}
+
+	/**
+	 * Cached llms.txt, or null.
+	 *
+	 * @return array{body:string,etag:string,cached_at:int}|null
+	 */
+	public function get_llms_txt() {
+		$hit = get_transient( 'citecue_llms_' . $this->salt() );
+		return ( is_array( $hit ) && isset( $hit['body'] ) ) ? $hit : null;
+	}
+
+	/**
+	 * Stores the llms.txt body.
+	 *
+	 * @param string $body llms.txt content.
+	 * @param string $etag Response ETag.
+	 * @return void
+	 */
+	public function set_llms_txt( $body, $etag ) {
+		set_transient(
+			'citecue_llms_' . $this->salt(),
+			array(
+				'body'      => $body,
+				'etag'      => $etag,
+				'cached_at' => time(),
+			),
+			self::BODY_TTL
+		);
+	}
+
+	/**
+	 * Age-based freshness check used to decide when to revalidate llms.txt.
+	 *
+	 * @param array $hit         Cache entry.
+	 * @param int   $max_age_sec Freshness window.
+	 * @return bool
+	 */
+	public function is_fresh( $hit, $max_age_sec ) {
+		return isset( $hit['cached_at'] ) && ( time() - (int) $hit['cached_at'] ) < $max_age_sec;
+	}
+
+	/**
+	 * Opens the circuit: no API calls until it expires. Serving falls back to
+	 * stale cache or plain pass-through, so an outage never slows the site.
+	 *
+	 * @param int $ttl Seconds to keep the circuit open.
+	 * @return void
+	 */
+	public function trip_circuit( $ttl = self::CIRCUIT_TTL ) {
+		set_transient( 'citecue_circuit', time() + $ttl, $ttl );
+	}
+
+	/**
+	 * Whether the circuit is open (API temporarily off-limits).
+	 *
+	 * @return bool
+	 */
+	public function is_circuit_open() {
+		return (bool) get_transient( 'citecue_circuit' );
+	}
+
+	/**
+	 * Flush all delivery caches by rotating the key salt.
+	 *
+	 * @return void
+	 */
+	public function flush() {
+		update_option( 'citecue_cache_salt', substr( md5( (string) wp_rand() . microtime() ), 0, 8 ) );
+		delete_transient( 'citecue_circuit' );
+	}
+}
