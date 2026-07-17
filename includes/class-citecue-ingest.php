@@ -15,12 +15,14 @@
  *       external_id  string  required — stable id, dedupe/update key
  *       title        string  required
  *       content      string  required — post body HTML (sanitized with wp_kses_post)
- *       excerpt      string  optional
+ *       excerpt      string  optional — post excerpt / product short description
  *       slug         string  optional
  *       status       string  optional — draft|pending|publish, capped by the configured maximum
- *       type         string  optional — post|page (default from settings)
- *       categories   array   optional — category names (posts only, created if missing)
- *       tags         array   optional — tag names (posts only)
+ *       type         string  optional — post|page|product (product requires WooCommerce; default from settings)
+ *       categories   array   optional — category names, created if missing (posts: category; products: product_cat)
+ *       tags         array   optional — tag names (posts: post_tag; products: product_tag)
+ *       sku          string  optional — products only; also matches an existing product to adopt (with force)
+ *       regular_price string optional — products only
  *       meta_description string optional — stored as _citecue_meta_description
  *       source       string  optional — provenance label (e.g. "content_brief:opp_123")
  *       force        bool    optional — overwrite even if the post was edited in WordPress
@@ -103,10 +105,11 @@ class Citecue_Ingest {
 	public function handle_health() {
 		return rest_ensure_response(
 			array(
-				'plugin'   => 'citecue',
-				'version'  => CITECUE_VERSION,
-				'delivery' => (bool) ( $this->plugin->settings->get( 'serve_enabled' ) && $this->plugin->settings->is_delivery_configured() ),
-				'ingest'   => (bool) $this->plugin->settings->get( 'ingest_enabled' ),
+				'plugin'      => 'citecue',
+				'version'     => CITECUE_VERSION,
+				'delivery'    => (bool) ( $this->plugin->settings->get( 'serve_enabled' ) && $this->plugin->settings->is_delivery_configured() ),
+				'ingest'      => (bool) $this->plugin->settings->get( 'ingest_enabled' ),
+				'woocommerce' => class_exists( 'WooCommerce' ),
 			)
 		);
 	}
@@ -196,14 +199,55 @@ class Citecue_Ingest {
 
 		$content = wp_kses_post( $content_raw );
 
-		$settings  = $this->plugin->settings;
-		$status    = $this->resolve_status( isset( $params['status'] ) ? (string) $params['status'] : '' );
-		$post_type = isset( $params['type'] ) && in_array( $params['type'], array( 'post', 'page' ), true )
-			? $params['type']
-			: (string) $settings->get( 'ingest_post_type' );
+		$settings = $this->plugin->settings;
+		$status   = $this->resolve_status( isset( $params['status'] ) ? (string) $params['status'] : '' );
+
+		$requested_type = isset( $params['type'] ) ? (string) $params['type'] : '';
+		if ( 'product' === $requested_type && ! class_exists( 'WooCommerce' ) ) {
+			return new WP_Error( 'citecue_woocommerce_missing', __( 'This payload targets a WooCommerce product, but WooCommerce is not active on this site.', 'citecue' ), array( 'status' => 400 ) );
+		}
+		$allowed_types = array( 'post', 'page' );
+		if ( class_exists( 'WooCommerce' ) ) {
+			$allowed_types[] = 'product';
+		}
+		$post_type = in_array( $requested_type, $allowed_types, true ) ? $requested_type : (string) $settings->get( 'ingest_post_type' );
+		if ( ! in_array( $post_type, $allowed_types, true ) ) {
+			$post_type = 'post'; // Configured default is 'product' but WooCommerce got deactivated.
+		}
 
 		$existing_id = $this->find_by_external_id( $external_id );
 		$force       = ! empty( $params['force'] );
+
+		// Products can also be matched by SKU, so pushes can enrich an
+		// existing catalog item. Adopting a product the plugin didn't create
+		// always requires force — its description is about to be replaced.
+		if ( ! $existing_id && 'product' === $post_type && isset( $params['sku'] ) && '' !== (string) $params['sku'] && function_exists( 'wc_get_product_id_by_sku' ) ) {
+			$sku_match = (int) wc_get_product_id_by_sku( wc_clean( (string) $params['sku'] ) );
+			if ( $sku_match > 0 ) {
+				if ( ! $force ) {
+					return new WP_Error(
+						'citecue_sku_exists',
+						__( 'A product with this SKU already exists; send force=true to adopt and update it.', 'citecue' ),
+						array(
+							'status'  => 409,
+							'post_id' => $sku_match,
+						)
+					);
+				}
+				$existing_id = $sku_match;
+			}
+		}
+
+		if ( $existing_id && get_post_type( $existing_id ) !== $post_type ) {
+			return new WP_Error(
+				'citecue_type_conflict',
+				__( 'This external_id already exists with a different content type.', 'citecue' ),
+				array(
+					'status'  => 409,
+					'post_id' => $existing_id,
+				)
+			);
+		}
 
 		// A trashed push stays trashed: the site owner rejected it, so it is
 		// neither resurrected nor duplicated.
@@ -229,44 +273,54 @@ class Citecue_Ingest {
 			);
 		}
 
-		$postarr = array(
-			'post_title'   => $title,
-			'post_content' => $content,
-			'post_status'  => $status,
-			'post_type'    => $post_type,
-			'post_author'  => $this->resolve_author(),
-		);
-		if ( isset( $params['excerpt'] ) ) {
-			$postarr['post_excerpt'] = sanitize_textarea_field( (string) $params['excerpt'] );
-		}
-		if ( isset( $params['slug'] ) && '' !== (string) $params['slug'] ) {
-			$postarr['post_name'] = sanitize_title( (string) $params['slug'] );
-		}
-		if ( $existing_id ) {
-			$postarr['ID'] = $existing_id;
+		if ( 'product' === $post_type ) {
+			$post_id = $this->upsert_product( $existing_id, $params, $title, $content, $status );
+			if ( is_wp_error( $post_id ) ) {
+				return $post_id;
+			}
+		} else {
+			$postarr = array(
+				'post_title'   => $title,
+				'post_content' => $content,
+				'post_status'  => $status,
+				'post_type'    => $post_type,
+				'post_author'  => $this->resolve_author(),
+			);
+			if ( isset( $params['excerpt'] ) ) {
+				$postarr['post_excerpt'] = sanitize_textarea_field( (string) $params['excerpt'] );
+			}
+			if ( isset( $params['slug'] ) && '' !== (string) $params['slug'] ) {
+				$postarr['post_name'] = sanitize_title( (string) $params['slug'] );
+			}
+			if ( $existing_id ) {
+				$postarr['ID'] = $existing_id;
+			}
+
+			/**
+			 * Filters the post array before a CiteCue push is inserted/updated.
+			 * Posts and pages only — products go through WooCommerce's CRUD.
+			 *
+			 * @param array $postarr wp_insert_post() arguments.
+			 * @param array $params  Raw (unsanitized) request payload.
+			 */
+			$postarr = apply_filters( 'citecue_ingest_postarr', $postarr, $params );
+
+			$result = $existing_id ? wp_update_post( $postarr, true ) : wp_insert_post( $postarr, true );
+			if ( is_wp_error( $result ) ) {
+				$result->add_data( array( 'status' => 500 ) );
+				return $result;
+			}
+			$post_id = (int) $result;
 		}
 
-		/**
-		 * Filters the post array before a CiteCue push is inserted/updated.
-		 *
-		 * @param array $postarr wp_insert_post() arguments.
-		 * @param array $params  Raw (unsanitized) request payload.
-		 */
-		$postarr = apply_filters( 'citecue_ingest_postarr', $postarr, $params );
-
-		$result = $existing_id ? wp_update_post( $postarr, true ) : wp_insert_post( $postarr, true );
-		if ( is_wp_error( $result ) ) {
-			$result->add_data( array( 'status' => 500 ) );
-			return $result;
-		}
-		$post_id = (int) $result;
-
-		if ( 'post' === $post_type ) {
+		if ( 'post' === $post_type || 'product' === $post_type ) {
+			$category_taxonomy = 'product' === $post_type ? 'product_cat' : 'category';
+			$tag_taxonomy      = 'product' === $post_type ? 'product_tag' : 'post_tag';
 			if ( isset( $params['categories'] ) && is_array( $params['categories'] ) ) {
-				wp_set_post_terms( $post_id, $this->ensure_terms( $params['categories'], 'category' ), 'category' );
+				wp_set_post_terms( $post_id, $this->ensure_terms( $params['categories'], $category_taxonomy ), $category_taxonomy );
 			}
 			if ( isset( $params['tags'] ) && is_array( $params['tags'] ) ) {
-				wp_set_post_terms( $post_id, array_map( 'sanitize_text_field', array_map( 'strval', $params['tags'] ) ), 'post_tag' );
+				wp_set_post_terms( $post_id, array_map( 'sanitize_text_field', array_map( 'strval', $params['tags'] ) ), $tag_taxonomy );
 			}
 		}
 
@@ -367,6 +421,72 @@ class Citecue_Ingest {
 	}
 
 	/**
+	 * Creates or updates a WooCommerce product through WooCommerce's CRUD API
+	 * (which maintains lookup tables, caches and SKU uniqueness — raw
+	 * wp_insert_post would not). New products are simple products; updates
+	 * keep whatever type the product already has.
+	 *
+	 * @param int    $existing_id Existing product ID, or 0 to create.
+	 * @param array  $params      Raw request payload.
+	 * @param string $title       Sanitized title.
+	 * @param string $content     Sanitized description HTML.
+	 * @param string $status      Effective post status.
+	 * @return int|WP_Error Product ID.
+	 */
+	private function upsert_product( $existing_id, array $params, $title, $content, $status ) {
+		if ( ! function_exists( 'wc_get_product' ) ) {
+			return new WP_Error( 'citecue_woocommerce_missing', __( 'WooCommerce is not active on this site.', 'citecue' ), array( 'status' => 400 ) );
+		}
+
+		try {
+			$product = $existing_id ? wc_get_product( $existing_id ) : new WC_Product_Simple();
+			if ( ! $product ) {
+				return new WP_Error( 'citecue_product_load_failed', __( 'The existing product could not be loaded.', 'citecue' ), array( 'status' => 500 ) );
+			}
+
+			$product->set_name( $title );
+			$product->set_description( $content );
+			$product->set_status( $status );
+			if ( isset( $params['excerpt'] ) ) {
+				$product->set_short_description( wp_kses_post( (string) $params['excerpt'] ) );
+			}
+			if ( isset( $params['slug'] ) && '' !== (string) $params['slug'] ) {
+				$product->set_slug( sanitize_title( (string) $params['slug'] ) );
+			}
+			if ( isset( $params['sku'] ) && '' !== (string) $params['sku'] ) {
+				$product->set_sku( wc_clean( (string) $params['sku'] ) );
+			}
+			if ( isset( $params['regular_price'] ) && '' !== (string) $params['regular_price'] ) {
+				$product->set_regular_price( wc_format_decimal( (string) $params['regular_price'] ) );
+			}
+
+			$post_id = (int) $product->save();
+		} catch ( WC_Data_Exception $e ) {
+			// E.g. the SKU belongs to a different product.
+			return new WP_Error( 'citecue_product_invalid', $e->getMessage(), array( 'status' => 409 ) );
+		} catch ( Throwable $e ) {
+			return new WP_Error( 'citecue_product_failed', __( 'WooCommerce rejected the product.', 'citecue' ), array( 'status' => 500 ) );
+		}
+
+		if ( $post_id <= 0 ) {
+			return new WP_Error( 'citecue_product_failed', __( 'WooCommerce rejected the product.', 'citecue' ), array( 'status' => 500 ) );
+		}
+
+		// WC's CRUD does not take an author; attribute newly created products
+		// like other pushed content.
+		if ( ! $existing_id ) {
+			wp_update_post(
+				array(
+					'ID'          => $post_id,
+					'post_author' => $this->resolve_author(),
+				)
+			);
+		}
+
+		return $post_id;
+	}
+
+	/**
 	 * Finds a previously pushed post by its external id.
 	 *
 	 * @param string $external_id External id.
@@ -375,7 +495,7 @@ class Citecue_Ingest {
 	private function find_by_external_id( $external_id ) {
 		$found = get_posts(
 			array(
-				'post_type'      => array( 'post', 'page' ),
+				'post_type'      => array( 'post', 'page', 'product' ),
 				'post_status'    => array( 'publish', 'future', 'draft', 'pending', 'private', 'trash' ),
 				'posts_per_page' => 1,
 				'fields'         => 'ids',

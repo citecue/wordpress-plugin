@@ -336,6 +336,9 @@ class Citecue_Admin {
 								<input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[serve_enabled]" value="1" <?php checked( (bool) $settings->get( 'serve_enabled' ) ); ?> />
 								<?php esc_html_e( 'When an AI bot or crawler requests a page, serve the CiteCue-optimized version instead. Human visitors always see your normal site.', 'citecue' ); ?>
 							</label>
+							<?php if ( class_exists( 'WooCommerce' ) ) : ?>
+								<p class="description"><?php esc_html_e( 'WooCommerce detected: cart, checkout, account pages and cart-modifying links are never intercepted. Product and shop pages are served normally.', 'citecue' ); ?></p>
+							<?php endif; ?>
 						</td>
 					</tr>
 					<tr>
@@ -394,7 +397,11 @@ class Citecue_Admin {
 							<select id="citecue_ingest_type" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[ingest_post_type]">
 								<option value="post" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'post' ); ?>><?php esc_html_e( 'Post', 'citecue' ); ?></option>
 								<option value="page" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'page' ); ?>><?php esc_html_e( 'Page', 'citecue' ); ?></option>
+								<?php if ( class_exists( 'WooCommerce' ) ) : ?>
+									<option value="product" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'product' ); ?>><?php esc_html_e( 'Product (WooCommerce)', 'citecue' ); ?></option>
+								<?php endif; ?>
 							</select>
+							<p class="description"><?php esc_html_e( 'Used when a push does not specify a type; each push may override it.', 'citecue' ); ?></p>
 						</td>
 					</tr>
 					<tr>

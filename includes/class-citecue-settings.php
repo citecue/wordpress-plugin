@@ -170,7 +170,11 @@ class Citecue_Settings {
 			$out['ingest_post_status'] = $input['ingest_post_status'];
 		}
 
-		if ( isset( $input['ingest_post_type'] ) && in_array( $input['ingest_post_type'], array( 'post', 'page' ), true ) ) {
+		$allowed_types = array( 'post', 'page' );
+		if ( class_exists( 'WooCommerce' ) ) {
+			$allowed_types[] = 'product';
+		}
+		if ( isset( $input['ingest_post_type'] ) && in_array( $input['ingest_post_type'], $allowed_types, true ) ) {
 			$out['ingest_post_type'] = $input['ingest_post_type'];
 		}
 

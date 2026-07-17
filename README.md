@@ -67,9 +67,11 @@ Or click **Verify installation** in CiteCue.
 | `excerpt` | string | |
 | `slug` | string | |
 | `status` | `draft`\|`pending`\|`publish` | Capped by the "Maximum status" setting (default `draft`) |
-| `type` | `post`\|`page` | Default from settings |
-| `categories` | string[] | Category names, created if missing (posts only) |
-| `tags` | string[] | Tag names (posts only) |
+| `type` | `post`\|`page`\|`product` | Default from settings; `product` requires WooCommerce |
+| `categories` | string[] | Term names, created if missing (posts → `category`, products → `product_cat`) |
+| `tags` | string[] | Term names (posts → `post_tag`, products → `product_tag`) |
+| `sku` | string | Products only; also matches an existing product to adopt (see below) |
+| `regular_price` | string | Products only |
 | `meta_description` | string | Stored as `_citecue_meta_description`; printed as `<meta name="description">` unless an SEO plugin is active |
 | `source` | string | Provenance label, e.g. `content_brief:opp_123` |
 | `force` | bool | Overwrite even if the post was edited in WordPress since the last push (otherwise → `409 citecue_edited_locally`) |
@@ -89,9 +91,17 @@ curl -X POST https://your-site.com/wp-json/citecue/v1/content \
   -d "$BODY"
 ```
 
-Responses: `201` created / `200` updated (`{created, updated, post_id, status, permalink, edit_link}`), `401` bad signature or stale timestamp, `403` ingest disabled, `409` edited locally, `429` rate-limited (120/hour, filterable).
+Responses: `201` created / `200` updated (`{created, updated, post_id, status, permalink, edit_link}`), `400` product push without WooCommerce, `401` bad signature or stale timestamp, `403` ingest disabled, `409` edited locally / SKU exists without `force` / type conflict, `410` push was trashed in WordPress, `429` rate-limited (120/hour, filterable).
 
-There is also a public handshake endpoint: `GET /wp-json/citecue/v1/health` → `{plugin, version, delivery, ingest}`.
+There is also a public handshake endpoint: `GET /wp-json/citecue/v1/health` → `{plugin, version, delivery, ingest, woocommerce}`.
+
+## WooCommerce
+
+With WooCommerce active:
+
+- **Store pages are protected.** The middleware never intercepts cart, checkout (including order-pay/order-received), account pages or any other WooCommerce endpoint, and skips `?add-to-cart=` links and `wc-ajax` calls. Product pages, the shop archive and category pages are served optimized like any other page — they are the highest-value AI-crawler targets.
+- **Products can be pushed.** `type: "product"` creates a draft simple product through WooCommerce's CRUD API (`title` → name, `content` → description, `excerpt` → short description, plus `sku`, `regular_price`, `product_cat`/`product_tag` terms). The same status cap applies.
+- **Existing products can be enriched.** When a push's `sku` matches an existing product not previously pushed, the plugin refuses with `409 citecue_sku_exists` unless `force: true` is sent — adopting a product deliberately requires an explicit opt-in because its description gets replaced. After adoption, updates flow by `external_id` like any other push.
 
 ## CiteCue API surface consumed
 

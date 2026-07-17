@@ -1,6 +1,6 @@
 === CiteCue AI Auto-Fix ===
 Contributors: citecue
-Tags: ai, llms.txt, gptbot, ai-seo, crawlers
+Tags: ai, llms.txt, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
@@ -17,6 +17,7 @@ CiteCue AI Auto-Fix connects your WordPress site to CiteCue:
 * **AI crawler middleware** — when an AI bot or crawler (GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User and more) requests a page, the plugin serves the CiteCue-optimized version of that page. Human visitors always see your normal site. Any miss, timeout or outage passes straight through to the normal page.
 * **llms.txt** — publishes the llms.txt file CiteCue generates for your brand at your site root.
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
+* **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
 
 Requires a CiteCue account and an organization API key.
 
@@ -41,7 +42,12 @@ Nothing visible: a circuit breaker stops API calls for a minute and every crawle
 
 By default it is created as a draft. You can raise the cap to "Pending review" or "Published" in the settings.
 
+= Is WooCommerce supported? =
+
+Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never intercepted, and product/shop pages are served optimized like any other page. With WooCommerce active, pushed content may also create draft products or enrich existing ones (matched by SKU, only with an explicit force flag).
+
 == Changelog ==
 
 = 1.0.0 =
 * Initial release: AI-crawler delivery middleware (CiteCue delivery API v2), llms.txt serving, signed content-ingest endpoint, daily crawler-registry refresh, admin settings screen.
+* WooCommerce support: store-page exclusions for the middleware; product create/enrich through the ingest endpoint.
