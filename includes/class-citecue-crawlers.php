@@ -131,7 +131,9 @@ class Citecue_Crawlers {
 	/**
 	 * Refreshes the token list from CiteCue's public registry feed
 	 * (`GET /api/delivery/v1/crawlers`, keyless). Any failure keeps the
-	 * current list — the bundled tokens always remain as a floor.
+	 * current list, a registry version older than what we already have is
+	 * rejected, and the bundled tokens are always merged back in — a
+	 * truncated or downgraded feed can never remove a bundled crawler.
 	 *
 	 * @param Citecue_Api_Client $api API client.
 	 * @return bool Whether a fresh registry was stored.
@@ -142,11 +144,29 @@ class Citecue_Crawlers {
 			return false;
 		}
 
+		$incoming_version = isset( $data['version'] ) ? (int) $data['version'] : 0;
+		if ( $incoming_version < max( self::BUNDLED_VERSION, $this->registry_info()['version'] ) ) {
+			return false;
+		}
+
+		// Union remote tokens with the bundled floor, case-insensitively deduped.
+		$tokens = array();
+		$seen   = array();
+		$merged = array_merge( array_map( 'sanitize_text_field', array_map( 'strval', $data['tokens'] ) ), self::bundled_tokens() );
+		foreach ( $merged as $token ) {
+			$token = trim( $token );
+			if ( '' === $token || isset( $seen[ strtolower( $token ) ] ) ) {
+				continue;
+			}
+			$seen[ strtolower( $token ) ] = true;
+			$tokens[]                     = $token;
+		}
+
 		update_option(
 			self::OPTION,
 			array(
-				'version'    => isset( $data['version'] ) ? (int) $data['version'] : self::BUNDLED_VERSION,
-				'tokens'     => array_values( array_filter( array_map( 'sanitize_text_field', $data['tokens'] ) ) ),
+				'version'    => $incoming_version,
+				'tokens'     => $tokens,
 				'fetched_at' => time(),
 			)
 		);

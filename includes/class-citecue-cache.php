@@ -42,13 +42,57 @@ class Citecue_Cache {
 	}
 
 	/**
+	 * Normalizes a URL for cache keying, mirroring CiteCue's server-side
+	 * normalizePageUrl(): lowercase host without www., no scheme, no fragment,
+	 * tracking params (utm_*, ref, fbclid, gclid) dropped, no trailing slash.
+	 * Spoofed-UA requests that only vary by tracking noise therefore share one
+	 * cache/miss entry instead of each minting a fresh key. Unparseable input
+	 * falls back to the raw string (still a stable key).
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return string
+	 */
+	public static function normalize_url( $url ) {
+		$parts = wp_parse_url( (string) $url );
+		if ( empty( $parts['host'] ) ) {
+			return (string) $url;
+		}
+
+		$host = strtolower( $parts['host'] );
+		if ( 0 === strpos( $host, 'www.' ) ) {
+			$host = substr( $host, 4 );
+		}
+
+		$path = isset( $parts['path'] ) ? $parts['path'] : '/';
+		if ( strlen( $path ) > 1 ) {
+			$path = untrailingslashit( $path );
+		}
+
+		$query = '';
+		if ( isset( $parts['query'] ) && '' !== $parts['query'] ) {
+			$pairs = array();
+			parse_str( $parts['query'], $pairs );
+			foreach ( array_keys( $pairs ) as $param ) {
+				if ( preg_match( '/^(utm_\w+|ref|fbclid|gclid)$/i', (string) $param ) ) {
+					unset( $pairs[ $param ] );
+				}
+			}
+			if ( $pairs ) {
+				$query = '?' . http_build_query( $pairs );
+			}
+		}
+
+		return $host . ( '/' === $path ? '' : $path ) . $query;
+	}
+
+	/**
 	 * Transient key for a page URL.
 	 *
 	 * @param string $url Absolute page URL.
 	 * @return string
 	 */
 	private function page_key( $url ) {
-		return 'citecue_pg_' . md5( $this->salt() . '|' . $url );
+		return 'citecue_pg_' . md5( $this->salt() . '|' . self::normalize_url( $url ) );
 	}
 
 	/**
@@ -99,13 +143,25 @@ class Citecue_Cache {
 	}
 
 	/**
+	 * Removes a cached page. Called when the API returns the miss sentinel for
+	 * a URL that used to be optimized (page removed/unapproved in CiteCue) —
+	 * the stale body must not resurface via the stale-on-error path.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function delete_page( $url ) {
+		delete_transient( $this->page_key( $url ) );
+	}
+
+	/**
 	 * Whether this URL recently returned the miss sentinel.
 	 *
 	 * @param string $url Absolute page URL.
 	 * @return bool
 	 */
 	public function is_recent_miss( $url ) {
-		return (bool) get_transient( 'citecue_ms_' . md5( $this->salt() . '|' . $url ) );
+		return (bool) get_transient( 'citecue_ms_' . md5( $this->salt() . '|' . self::normalize_url( $url ) ) );
 	}
 
 	/**
@@ -116,7 +172,7 @@ class Citecue_Cache {
 	 * @return void
 	 */
 	public function set_miss( $url ) {
-		set_transient( 'citecue_ms_' . md5( $this->salt() . '|' . $url ), 1, self::MISS_TTL );
+		set_transient( 'citecue_ms_' . md5( $this->salt() . '|' . self::normalize_url( $url ) ), 1, self::MISS_TTL );
 	}
 
 	/**
@@ -127,6 +183,15 @@ class Citecue_Cache {
 	public function get_llms_txt() {
 		$hit = get_transient( 'citecue_llms_' . $this->salt() );
 		return ( is_array( $hit ) && isset( $hit['body'] ) ) ? $hit : null;
+	}
+
+	/**
+	 * Removes the cached llms.txt (serving got disabled on CiteCue).
+	 *
+	 * @return void
+	 */
+	public function delete_llms_txt() {
+		delete_transient( 'citecue_llms_' . $this->salt() );
 	}
 
 	/**

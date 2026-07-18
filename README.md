@@ -27,6 +27,7 @@ AI crawler (GPTBot, ClaudeBot, …)                Human visitor
 - **One request serves and reports.** The v2 delivery endpoint records the crawler hit server-side (`served` for 200/304, `passthrough` for a miss), so CiteCue's Agent Traffic dashboard stays accurate with no extra beacon.
 - **Conditional revalidation.** Optimized bodies are cached locally with their ETag; revalidation is a cheap 304 round-trip. Misses are negative-cached for 60 s (mirroring the API's `max-age=60` miss sentinel).
 - **Circuit breaker.** A timeout or 5xx opens a 60 s circuit (10 min on a rejected key): no API calls, stale cache served when available, plain pass-through otherwise. A CiteCue outage never slows human traffic — the API is only ever called for AI-crawler requests in the first place.
+- **Abuse-bounded.** Cache keys use CiteCue-compatible URL normalization (tracking params, `www.`, trailing slashes deduped), and outbound lookups are capped by a per-minute budget (default 120, filterable) — a spoofed crawler UA spraying unique URLs cannot force unbounded API calls. When CiteCue reports a page is no longer optimized, its cached copy is evicted immediately.
 - **Crawler registry.** A bundled token list ships with the plugin and refreshes daily from the public `GET /api/delivery/v1/crawlers` feed, so newly added crawlers are served without a plugin update.
 - **Verification-compatible.** Served pages carry `X-Citecue: served` and llms.txt carries `X-Citecue: llms-txt` — the headers CiteCue's *Verify installation* button probes for.
 
@@ -56,6 +57,8 @@ Or click **Verify installation** in CiteCue.
 | `Content-Type` | `application/json` |
 | `X-Citecue-Timestamp` | Unix seconds; rejected when more than ±300 s off |
 | `X-Citecue-Signature` | `sha256=` + hex `HMAC_SHA256("{timestamp}.{raw_body}", secret)` |
+
+Signatures are **single-use**: replaying a captured request is rejected with `401 citecue_replayed`. Retries must recompute the timestamp (and therefore the signature).
 
 **Body**
 
@@ -120,6 +123,7 @@ With WooCommerce active:
 | `citecue_matched_crawler` | filter | Override per-request crawler matching |
 | `citecue_should_serve` | filter | Veto serving for a specific request |
 | `citecue_serve_timeout` | filter | Delivery API timeout on the serving path (default 3 s) |
+| `citecue_lookup_budget` | filter | Max delivery API lookups per minute (default 120); beyond it, crawler requests pass through |
 | `citecue_ingest_postarr` | filter | Adjust the post array before insert/update |
 | `citecue_ingest_rate_limit` | filter | Ingest requests allowed per hour (default 120) |
 | `citecue_output_meta_description` | filter | Control the meta-description tag for pushed content |

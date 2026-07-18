@@ -103,6 +103,16 @@ class Citecue_Proxy {
 			return;
 		}
 
+		// Global lookup budget: a spoofed crawler UA spraying unique URLs
+		// cannot force unbounded outbound API calls. Exhausted budget degrades
+		// exactly like an open circuit.
+		if ( ! $this->consume_lookup_budget() ) {
+			if ( $cached ) {
+				$this->serve( $cached['body'], $cached['mode'], true );
+			}
+			return;
+		}
+
 		$response = $this->plugin->api->get_page( $url, $crawler, $cached ? $cached['etag'] : '' );
 
 		if ( is_wp_error( $response ) ) {
@@ -139,8 +149,12 @@ class Citecue_Proxy {
 				return;
 
 			case 404:
-				// Miss sentinel: CiteCue recorded the passthrough hit server-side.
+				// Miss sentinel: CiteCue recorded the passthrough hit
+				// server-side. Evict any previously cached body — the page
+				// was removed/unapproved, so it must not resurface through
+				// the stale-on-error path.
 				delete_option( 'citecue_auth_failed' );
+				$cache->delete_page( $url );
 				$cache->set_miss( $url );
 				$this->plugin->activity->record( $crawler, $path, 'passthrough' );
 				return;
@@ -199,6 +213,30 @@ class Citecue_Proxy {
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			return false;
 		}
+		return true;
+	}
+
+	/**
+	 * Consumes one unit of the per-minute outbound-lookup budget. Bounds the
+	 * delivery API calls an anonymous visitor can trigger by spoofing a
+	 * crawler User-Agent across unique URLs; real crawl bursts beyond the
+	 * budget just fall through to the normal page for the rest of the minute.
+	 *
+	 * @return bool Whether an API lookup may be made.
+	 */
+	private function consume_lookup_budget() {
+		/**
+		 * Filters the maximum delivery API lookups per minute.
+		 *
+		 * @param int $limit Default 120.
+		 */
+		$limit = max( 1, (int) apply_filters( 'citecue_lookup_budget', 120 ) );
+		$key   = 'citecue_budget_' . (int) floor( time() / MINUTE_IN_SECONDS );
+		$count = (int) get_transient( $key );
+		if ( $count >= $limit ) {
+			return false;
+		}
+		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
 		return true;
 	}
 

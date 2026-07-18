@@ -147,8 +147,10 @@ class Citecue_Admin {
 	}
 
 	/**
-	 * Test connection: fetch the org's projects, cache them, auto-select the
-	 * project whose domain matches this site when none is selected yet.
+	 * Save & test connection: persist the submitted settings first (so a key
+	 * pasted moments ago is the one being tested), then fetch the org's
+	 * projects, cache them, and auto-select the project whose domain matches
+	 * this site when none is selected yet.
 	 *
 	 * @return void
 	 */
@@ -156,7 +158,13 @@ class Citecue_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
 		}
-		check_admin_referer( 'citecue_test_connection' );
+		check_admin_referer( 'citecue_test_connection', 'citecue_test_nonce' );
+
+		if ( isset( $_POST[ Citecue_Settings::OPTION ] ) && is_array( $_POST[ Citecue_Settings::OPTION ] ) ) {
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitize() is the sanitizer.
+			$raw = wp_unslash( $_POST[ Citecue_Settings::OPTION ] );
+			$this->plugin->settings->update( $this->plugin->settings->sanitize( $raw ) );
+		}
 
 		$projects = $this->plugin->api->get_config();
 		if ( is_wp_error( $projects ) ) {
@@ -315,7 +323,7 @@ class Citecue_Admin {
 									</option>
 								<?php endif; ?>
 							</select>
-							<p class="description"><?php esc_html_e( 'Use “Test connection” to load your CiteCue projects. The project matching this site’s domain is selected automatically.', 'citecue' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Use “Save & test connection” to load your CiteCue projects. The project matching this site’s domain is selected automatically.', 'citecue' ); ?></p>
 						</td>
 					</tr>
 					<tr>
@@ -429,14 +437,24 @@ class Citecue_Admin {
 					</tr>
 				</table>
 
-				<?php submit_button(); ?>
+				<p class="submit">
+					<?php submit_button( __( 'Save changes', 'citecue' ), 'primary', 'submit', false ); ?>
+					<?php
+					// The test button submits THIS form (so an API key that was
+					// just pasted is saved and tested in one step) but routes it
+					// to admin-post via formaction; the nonce below rides along.
+					wp_nonce_field( 'citecue_test_connection', 'citecue_test_nonce' );
+					?>
+					<button type="submit" class="button" formmethod="post" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=citecue_test_connection' ) ); ?>">
+						<?php esc_html_e( 'Save & test connection', 'citecue' ); ?>
+					</button>
+				</p>
 			</form>
 
 			<hr />
 
 			<h2><?php esc_html_e( 'Tools', 'citecue' ); ?></h2>
 			<p>
-				<?php $this->action_button( 'citecue_test_connection', __( 'Test connection', 'citecue' ) ); ?>
 				<?php $this->action_button( 'citecue_refresh_crawlers', __( 'Refresh crawler list', 'citecue' ) ); ?>
 				<?php $this->action_button( 'citecue_flush_cache', __( 'Flush delivery cache', 'citecue' ) ); ?>
 				<?php $this->action_button( 'citecue_regen_secret', __( 'Regenerate ingest secret', 'citecue' ) ); ?>

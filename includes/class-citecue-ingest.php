@@ -148,6 +148,15 @@ class Citecue_Ingest {
 			return new WP_Error( 'citecue_bad_signature', __( 'Invalid request signature.', 'citecue' ), array( 'status' => 401 ) );
 		}
 
+		// Signatures are single-use: a captured request replayed within the
+		// timestamp window is rejected (it could re-apply a force overwrite).
+		// Legitimate retries recompute the timestamp, minting a new signature.
+		$replay_key = 'citecue_replay_' . md5( $signature );
+		if ( get_transient( $replay_key ) ) {
+			return new WP_Error( 'citecue_replayed', __( 'This signature was already used; sign each request freshly.', 'citecue' ), array( 'status' => 401 ) );
+		}
+		set_transient( $replay_key, 1, 2 * self::TIMESTAMP_WINDOW );
+
 		// After authentication on purpose: unsigned traffic can never consume
 		// the budget and lock out legitimate pushes.
 		if ( ! $this->within_rate_limit() ) {

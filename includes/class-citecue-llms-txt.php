@@ -101,8 +101,13 @@ class Citecue_Llms_Txt {
 				$cache->trip_circuit( Citecue_Cache::AUTH_CIRCUIT_TTL );
 				return;
 
+			case 404:
+				// llms.txt serving disabled on CiteCue: evict the cached copy
+				// (so it cannot resurface stale) and fall through to WordPress.
+				$cache->delete_llms_txt();
+				return;
+
 			default:
-				// 404 = llms.txt serving disabled on CiteCue; fall through to WordPress.
 				return;
 		}
 	}

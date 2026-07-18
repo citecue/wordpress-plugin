@@ -51,3 +51,4 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 = 1.0.0 =
 * Initial release: AI-crawler delivery middleware (CiteCue delivery API v2), llms.txt serving, signed content-ingest endpoint, daily crawler-registry refresh, admin settings screen.
 * WooCommerce support: store-page exclusions for the middleware; product create/enrich through the ingest endpoint.
+* Hardening: single-use ingest signatures (replay rejection), per-minute delivery lookup budget, CiteCue-compatible cache-key URL normalization, cache eviction on delivery misses, crawler-registry downgrade rejection with the bundled token floor, and a combined "Save & test connection" flow.
