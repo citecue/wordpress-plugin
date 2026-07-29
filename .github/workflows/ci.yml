@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  static:
+    name: Lint & coding standards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Syntax check every file
+        run: composer run lint
+
+      - name: WordPress coding standards
+        run: composer run phpcs
+
+  test:
+    name: PHP ${{ matrix.php }} / WP ${{ matrix.wp }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin header claims PHP 7.4+; both ends of that range are
+        # tested against current WordPress, plus two older WordPress versions.
+        #
+        # WordPress 5.9 rather than the declared 5.8 floor: WordPress's own
+        # test library only gained PHPUnit 9 support in 5.9, and 5.8 hard-fails
+        # with "compatible with PHPUnit up to 7.x". 5.8 support is therefore
+        # verified by the PHPCompatibility/manual checks, not by this suite.
+        php: ['7.4', '8.2', '8.4']
+        wp: ['latest']
+        include:
+          - php: '7.4'
+            wp: '5.9.*'
+          - php: '8.3'
+            wp: '6.5.*'
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: 1
+          MARIADB_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=6
+
+    env:
+      WP_TESTS_DB_HOST: 127.0.0.1:3306
+      WP_TESTS_DB_NAME: wordpress_test
+      WP_TESTS_DB_USER: root
+      WP_TESTS_DB_PASSWORD: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      # WordPress core and the test library are separate packages that share
+      # WordPress's version numbers — they must be pinned together or the
+      # library boots against a core it does not match.
+      - name: Pin WordPress to ${{ matrix.wp }}
+        if: matrix.wp != 'latest'
+        run: >-
+          composer require --dev --update-with-dependencies --no-progress
+          "roots/wordpress-no-content:${{ matrix.wp }}"
+          "wp-phpunit/wp-phpunit:${{ matrix.wp }}"
+
+      - name: Run the test suite
+        run: composer run test:core
+
+      - name: Run the test suite with the WooCommerce store rules active
+        run: composer run test:woocommerce
+
+  test-woocommerce:
+    name: WooCommerce integration
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: 1
+          MARIADB_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=6
+
+    env:
+      WP_TESTS_DB_HOST: 127.0.0.1:3306
+      WP_TESTS_DB_NAME: wordpress_test
+      WP_TESTS_DB_USER: root
+      WP_TESTS_DB_PASSWORD: ''
+      CITECUE_WITH_WOOCOMMERCE: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mysqli
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install WooCommerce
+        run: composer require --dev --no-progress wpackagist-plugin/woocommerce
+
+      - name: Run the product-push tests against a real WooCommerce
+        run: composer run test:core

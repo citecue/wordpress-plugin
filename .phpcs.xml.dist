@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<ruleset name="CiteCue">
+	<description>WordPress coding standards for the CiteCue plugin.</description>
+
+	<file>.</file>
+	<exclude-pattern>/vendor/*</exclude-pattern>
+	<exclude-pattern>/node_modules/*</exclude-pattern>
+
+	<arg name="extensions" value="php"/>
+	<arg name="basepath" value="."/>
+	<arg name="colors"/>
+	<arg name="parallel" value="4"/>
+	<arg value="sp"/>
+
+	<rule ref="WordPress-Core"/>
+	<rule ref="WordPress-Docs"/>
+
+	<!-- The plugin ships as plain PHP with a 7.4 floor. -->
+	<config name="testVersion" value="7.4-"/>
+	<rule ref="PHPCompatibilityWP"/>
+
+	<config name="minimum_wp_version" value="5.8"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="citecue"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="citecue"/>
+				<element value="CITECUE"/>
+			</property>
+		</properties>
+	</rule>
+
+	<!--
+		DONOTCACHEPAGE is the cross-plugin convention page caches look for; the
+		point is that other plugins recognise it, so it cannot be prefixed.
+	-->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound">
+		<exclude-pattern>/includes/class-citecue-proxy\.php</exclude-pattern>
+		<exclude-pattern>/includes/class-citecue-llms-txt\.php</exclude-pattern>
+	</rule>
+
+	<!-- "llms.txt" is a filename and stays lowercase in prose. -->
+	<rule ref="Generic.Commenting.DocComment.ShortNotCapital">
+		<exclude-pattern>/includes/class-citecue-llms-txt\.php</exclude-pattern>
+	</rule>
+
+	<!-- The standard directory-listing guard file. -->
+	<rule ref="Squiz.Commenting.FileComment.WrongStyle">
+		<exclude-pattern>/includes/index\.php</exclude-pattern>
+	</rule>
+
+	<!--
+		Test files are not shipped: they legitimately reassign WordPress
+		globals, declare unprefixed test classes, and carry docblocks that hold
+		only PHPUnit annotations (@covers, @dataProvider).
+	-->
+	<rule ref="WordPress.WP.GlobalVariablesOverride">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.PHP.DevelopmentFunctions">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Generic.Commenting.DocComment.MissingShort">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Squiz.Commenting.FunctionComment.Missing">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.Files.FileName">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<!-- PHPUnit calls assertion helpers in camelCase. -->
+	<rule ref="WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid">
+		<exclude-pattern>/tests/*</exclude-pattern>
+	</rule>
+	<!--
+		The sniff reads a docblock that directly precedes a require as
+		documentation for that statement rather than for the file. The bootstrap
+		has to require the autoloader first, so it can never satisfy both.
+	-->
+	<rule ref="Squiz.Commenting.FileComment.Missing">
+		<exclude-pattern>/tests/bootstrap\.php</exclude-pattern>
+	</rule>
+</ruleset>

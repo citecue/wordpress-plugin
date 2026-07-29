@@ -137,4 +137,46 @@ With WooCommerce active:
 
 ## Development
 
-Plain PHP ≥ 7.4, no build step. Repo root is the plugin root. `php -l` every file; WordPress coding standards style.
+Plain PHP ≥ 7.4, no build step. Repo root is the plugin root, so the checkout can be symlinked straight into `wp-content/plugins/`.
+
+### Tests
+
+The suite is WordPress integration tests: real options, transients, REST requests and query conditionals, with the CiteCue API faked at the `wp_remote_get` layer (`tests/includes/class-citecue-http-mock.php`) so no test ever touches the network. WordPress core and its test library both come from Composer — there is nothing to download by hand.
+
+```bash
+composer install
+mysqladmin create wordpress_test -uroot          # any empty database will do
+composer test
+```
+
+Point it at a different database with `WP_TESTS_DB_NAME`, `WP_TESTS_DB_USER`, `WP_TESTS_DB_PASSWORD`, `WP_TESTS_DB_HOST` (see `tests/wp-tests-config.php`).
+
+`composer test` runs the suite twice, because whether WooCommerce exists is a process-wide fact rather than something a single test can toggle:
+
+| Command | Covers |
+|---|---|
+| `composer test:core` | Everything, with no WooCommerce present |
+| `composer test:woocommerce` | Adds a minimal WooCommerce stand-in so the store-page exclusion rules are exercised |
+| `CITECUE_WITH_WOOCOMMERCE=1 composer test:core` | Product pushes against a real WooCommerce — needs `composer require --dev wpackagist-plugin/woocommerce` |
+
+Other commands:
+
+```bash
+composer lint     # php -l over every file
+composer phpcs    # WordPress coding standards + PHP 7.4 compatibility
+composer phpcbf   # auto-fix what phpcs can
+```
+
+CI runs the static checks plus the suite on PHP 7.4/8.2/8.4 against current WordPress, on PHP 7.4/8.3 against WordPress 5.9/6.5, and a separate job against a real WooCommerce. WordPress 5.9 is the oldest version the automated suite can cover — WordPress's own test library only supports PHPUnit 9 from 5.9 onwards — so the declared 5.8 floor rests on the PHPCompatibility checks and manual verification.
+
+### Testing an install by hand
+
+```bash
+curl -si -A GPTBot https://your-site.com/llms.txt        # expect: x-citecue: llms-txt
+curl -si -A GPTBot https://your-site.com/optimized-page/ # expect: x-citecue: served
+curl -s https://your-site.com/wp-json/citecue/v1/health  # plugin/version/delivery/ingest/woocommerce
+```
+
+### Structure notes
+
+`Citecue_Proxy` and `Citecue_Llms_Txt` each split into a `decide()` that returns what should happen and a `serve()` that emits headers and calls `exit`. All the branching lives in `decide()`, which is what the tests drive; `serve()` stays deliberately trivial because nothing can assert against a request that has already ended.
