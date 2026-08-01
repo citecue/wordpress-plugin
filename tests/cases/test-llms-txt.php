@@ -148,6 +148,100 @@ class Test_Citecue_Llms_Txt extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A project with llms.txt switched off must not turn every hit on the URL
+	 * into an outbound call — this endpoint answers humans, not just crawlers.
+	 *
+	 * @return void
+	 */
+	public function test_404_is_negative_cached() {
+		$this->http->queue( 'llms', 404 );
+		$this->llms_txt()->decide();
+
+		for ( $i = 0; $i < 10; $i++ ) {
+			$this->assertFalse( $this->llms_txt()->decide()['serve'] );
+		}
+
+		$this->assertSame( 1, $this->http->count( 'llms' ) );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_flushing_the_cache_retries_a_disabled_project() {
+		$this->http->queue( 'llms', 404 );
+		$this->http->queue( 'llms', 200, self::BODY );
+
+		$this->llms_txt()->decide();
+		$this->assertTrue( $this->plugin->cache->is_recent_llms_txt_miss() );
+
+		$this->plugin->cache->flush();
+
+		$this->assertSame( self::BODY, $this->llms_txt()->decide()['body'] );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_lookups_are_capped_by_the_budget() {
+		$this->exhaust_lookup_budget();
+
+		$this->assertFalse( $this->llms_txt()->decide()['serve'] );
+		$this->assertSame( 0, $this->http->count() );
+	}
+
+	/**
+	 * Degrading on an exhausted budget must not cost visitors a body the
+	 * plugin already holds.
+	 *
+	 * @return void
+	 */
+	public function test_an_exhausted_budget_still_serves_a_stale_copy() {
+		$this->stale_cache( self::BODY, '"v1"' );
+		$this->exhaust_lookup_budget();
+
+		$this->assertSame( self::BODY, $this->llms_txt()->decide()['body'] );
+		$this->assertSame( 0, $this->http->count() );
+	}
+
+	/**
+	 * The budget is one ceiling for the whole site, so traffic on one path
+	 * cannot be used to get around the limit on the other.
+	 *
+	 * @return void
+	 */
+	public function test_the_budget_is_shared_with_the_crawler_path() {
+		add_filter( 'citecue_lookup_budget', static fn() => 1 );
+
+		$this->http->queue( 'llms', 404 );
+		$this->llms_txt()->decide();
+
+		$this->set_permalink_structure( '/%postname%/' );
+		$this->fake_crawler_request( '/hello-world/' );
+
+		$this->assertPassedThrough( 'budget-exhausted', $this->proxy()->decide() );
+		$this->assertSame( 0, $this->http->count( 'page' ) );
+	}
+
+	/**
+	 * A served llms.txt spends budget too, so a flood on this URL is bounded
+	 * even when CiteCue is answering normally.
+	 *
+	 * @return void
+	 */
+	public function test_serving_consumes_budget() {
+		add_filter( 'citecue_lookup_budget', static fn() => 2 );
+		$this->http->queue( 'llms', 200, self::BODY );
+
+		// Each pass revalidates, because the cache is aged out every time.
+		for ( $i = 0; $i < 5; $i++ ) {
+			$this->stale_cache( self::BODY, '"v1"' );
+			$this->llms_txt()->decide();
+		}
+
+		$this->assertSame( 2, $this->http->count( 'llms' ) );
+	}
+
+	/**
 	 * @return void
 	 */
 	public function test_a_timeout_serves_the_cached_copy() {

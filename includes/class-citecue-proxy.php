@@ -120,7 +120,7 @@ class Citecue_Proxy {
 		// Global lookup budget: a spoofed crawler UA spraying unique URLs
 		// cannot force unbounded outbound API calls. Exhausted budget degrades
 		// exactly like an open circuit.
-		if ( ! $this->consume_lookup_budget() ) {
+		if ( ! $cache->consume_lookup_budget() ) {
 			return $cached
 				? self::serve_stale( $cached, 'budget-exhausted' )
 				: self::pass( 'budget-exhausted' );
@@ -268,30 +268,6 @@ class Citecue_Proxy {
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			return false;
 		}
-		return true;
-	}
-
-	/**
-	 * Consumes one unit of the per-minute outbound-lookup budget. Bounds the
-	 * delivery API calls an anonymous visitor can trigger by spoofing a
-	 * crawler User-Agent across unique URLs; real crawl bursts beyond the
-	 * budget just fall through to the normal page for the rest of the minute.
-	 *
-	 * @return bool Whether an API lookup may be made.
-	 */
-	private function consume_lookup_budget() {
-		/**
-		 * Filters the maximum delivery API lookups per minute.
-		 *
-		 * @param int $limit Default 120.
-		 */
-		$limit = max( 1, (int) apply_filters( 'citecue_lookup_budget', 120 ) );
-		$key   = 'citecue_budget_' . (int) floor( time() / MINUTE_IN_SECONDS );
-		$count = (int) get_transient( $key );
-		if ( $count >= $limit ) {
-			return false;
-		}
-		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
 		return true;
 	}
 

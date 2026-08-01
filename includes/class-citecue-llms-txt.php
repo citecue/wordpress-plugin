@@ -87,6 +87,20 @@ class Citecue_Llms_Txt {
 			return self::pass( 'circuit-open' );
 		}
 
+		// CiteCue recently said this project has no llms.txt: skip the API for
+		// a minute. This endpoint answers every visitor, not just crawlers, so
+		// without the negative cache a project with llms.txt switched off would
+		// make one outbound call per hit on the URL.
+		if ( $cache->is_recent_llms_txt_miss() ) {
+			return self::pass( 'recent-miss' );
+		}
+
+		// Shared with the crawler path, so the site's total outbound calls stay
+		// bounded however the traffic is distributed between the two.
+		if ( ! $cache->consume_lookup_budget() ) {
+			return $cached ? self::body( $cached['body'], 'budget-exhausted' ) : self::pass( 'budget-exhausted' );
+		}
+
 		$response = $this->plugin->api->get_llms_txt( $cached ? $cached['etag'] : '' );
 
 		if ( is_wp_error( $response ) ) {
@@ -113,8 +127,10 @@ class Citecue_Llms_Txt {
 
 			case 404:
 				// llms.txt serving disabled on CiteCue: evict the cached copy
-				// (so it cannot resurface stale) and fall through to WordPress.
+				// (so it cannot resurface stale), remember the miss so the next
+				// visitors are answered locally, and fall through to WordPress.
 				$cache->delete_llms_txt();
+				$cache->set_llms_txt_miss();
 				return self::pass( 'disabled-upstream' );
 
 			default:

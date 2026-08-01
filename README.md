@@ -27,7 +27,7 @@ AI crawler (GPTBot, ClaudeBot, …)                Human visitor
 - **One request serves and reports.** The v2 delivery endpoint records the crawler hit server-side (`served` for 200/304, `passthrough` for a miss), so CiteCue's Agent Traffic dashboard stays accurate with no extra beacon.
 - **Conditional revalidation.** Optimized bodies are cached locally with their ETag; revalidation is a cheap 304 round-trip. Misses are negative-cached for 60 s (mirroring the API's `max-age=60` miss sentinel).
 - **Circuit breaker.** A timeout or 5xx opens a 60 s circuit (10 min on a rejected key): no API calls, stale cache served when available, plain pass-through otherwise. A CiteCue outage never slows human traffic — the API is only ever called for AI-crawler requests in the first place.
-- **Abuse-bounded.** Cache keys use CiteCue-compatible URL normalization (tracking params, `www.`, trailing slashes deduped), and outbound lookups are capped by a per-minute budget (default 120, filterable) — a spoofed crawler UA spraying unique URLs cannot force unbounded API calls. When CiteCue reports a page is no longer optimized, its cached copy is evicted immediately.
+- **Abuse-bounded.** Cache keys use CiteCue-compatible URL normalization (tracking params, `www.`, trailing slashes deduped), and outbound lookups are capped by a per-minute budget shared across the crawler and llms.txt paths (default 120, filterable) — neither a spoofed crawler UA spraying unique URLs nor a flood on `/llms.txt` can force unbounded API calls. When CiteCue reports a page is no longer optimized, its cached copy is evicted immediately.
 - **Crawler registry.** A bundled token list ships with the plugin and refreshes daily from the public `GET /api/delivery/v1/crawlers` feed, so newly added crawlers are served without a plugin update.
 - **Verification-compatible.** Served pages carry `X-Citecue: served` and llms.txt carries `X-Citecue: llms-txt` — the headers CiteCue's *Verify installation* button probes for.
 
@@ -123,10 +123,25 @@ With WooCommerce active:
 | `citecue_matched_crawler` | filter | Override per-request crawler matching |
 | `citecue_should_serve` | filter | Veto serving for a specific request |
 | `citecue_serve_timeout` | filter | Delivery API timeout on the serving path (default 3 s) |
-| `citecue_lookup_budget` | filter | Max delivery API lookups per minute (default 120); beyond it, crawler requests pass through |
+| `citecue_lookup_budget` | filter | Max delivery API lookups per minute across the crawler and llms.txt paths combined (default 120); beyond it, requests are answered from cache or passed through |
 | `citecue_ingest_postarr` | filter | Adjust the post array before insert/update |
 | `citecue_ingest_rate_limit` | filter | Ingest requests allowed per hour (default 120) |
 | `citecue_output_meta_description` | filter | Control the meta-description tag for pushed content |
+
+## Performance
+
+The delivery API is only ever called for an AI-crawler request or for `/llms.txt`. A human page view does no HTTP, no extra database query and no cache lookup — the middleware returns as soon as the User-Agent fails to match, having done nothing but a substring scan over the crawler tokens (which travel in an autoloaded option WordPress has already read).
+
+For a crawler request the cost is one API call, with a 3 s timeout, and only when the local cache cannot answer: optimized bodies are cached for 24 h and revalidated with an ETag, misses are negative-cached for 60 s, and llms.txt is treated as fresh for 5 minutes. A repeat crawl of a cached page is a 304, not a re-download.
+
+- **A persistent object cache is recommended.** Cached bodies are transients. With Redis or Memcached they never touch the database. Without one they are rows in `wp_options` — full HTML documents, one per crawled URL, for up to 24 h. They are not autoloaded, so they cost nothing per request, but a heavily crawled site can hold tens of megabytes there until WordPress's twice-daily transient cleanup runs.
+- **The outbound-call ceiling is per site, not per path.** The 120/minute budget covers crawler lookups and llms.txt together, so no mix of traffic can exceed it.
+
+## What happens if CiteCue is unavailable
+
+Nothing that a visitor can see. The first failing request waits at most 3 s and then opens the circuit for 60 s (10 minutes if the API key was rejected). While it is open the plugin makes no API calls at all: it serves the cached body if it has one — marked `X-Citecue-Cache: stale` — and otherwise falls straight through to normal theme output. Because bodies are kept for 24 h, crawlers keep receiving optimized pages through a short outage.
+
+The worst case for an AI crawler is one 3 s wait per minute. For a human visitor there is no worst case: the API is never consulted on their behalf.
 
 ## Notes & caveats
 
