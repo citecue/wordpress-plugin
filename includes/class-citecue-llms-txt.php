@@ -53,13 +53,27 @@ class Citecue_Llms_Txt {
 	 * @return void
 	 */
 	public function maybe_serve() {
+		$decision = $this->decide();
+
+		if ( $decision['serve'] ) {
+			$this->serve( $decision['body'] );
+		}
+	}
+
+	/**
+	 * Decides what this request should get, without emitting anything — the
+	 * testable counterpart of {@see self::serve()}, which ends the request.
+	 *
+	 * @return array{serve:bool,body:string,reason:string}
+	 */
+	public function decide() {
 		if ( ! $this->is_llms_txt_request() ) {
-			return;
+			return self::pass( 'not-llms-txt' );
 		}
 
 		$settings = $this->plugin->settings;
 		if ( ! $settings->get( 'llms_txt_enabled' ) || ! $settings->is_delivery_configured() ) {
-			return;
+			return self::pass( 'not-configured' );
 		}
 
 		$cache  = $this->plugin->cache;
@@ -67,49 +81,90 @@ class Citecue_Llms_Txt {
 
 		// Fresh cached copy or open circuit: serve locally, no API call.
 		if ( $cached && ( $cache->is_fresh( $cached, self::FRESH_SECONDS ) || $cache->is_circuit_open() ) ) {
-			$this->serve( $cached['body'] );
+			return self::body( $cached['body'], 'cached' );
 		}
 		if ( $cache->is_circuit_open() ) {
-			return;
+			return self::pass( 'circuit-open' );
+		}
+
+		// CiteCue recently said this project has no llms.txt: skip the API for
+		// a minute. This endpoint answers every visitor, not just crawlers, so
+		// without the negative cache a project with llms.txt switched off would
+		// make one outbound call per hit on the URL.
+		if ( $cache->is_recent_llms_txt_miss() ) {
+			return self::pass( 'recent-miss' );
+		}
+
+		// Shared with the crawler path, so the site's total outbound calls stay
+		// bounded however the traffic is distributed between the two.
+		if ( ! $cache->consume_lookup_budget() ) {
+			return $cached ? self::body( $cached['body'], 'budget-exhausted' ) : self::pass( 'budget-exhausted' );
 		}
 
 		$response = $this->plugin->api->get_llms_txt( $cached ? $cached['etag'] : '' );
 
 		if ( is_wp_error( $response ) ) {
 			$cache->trip_circuit();
-			if ( $cached ) {
-				$this->serve( $cached['body'] );
-			}
-			return;
+			return $cached ? self::body( $cached['body'], 'transport-error' ) : self::pass( 'transport-error' );
 		}
 
 		switch ( $response['status'] ) {
 			case 200:
 				$cache->set_llms_txt( $response['body'], $response['etag'] );
-				$this->serve( $response['body'] );
-				return;
+				return self::body( $response['body'], 'fresh' );
 
 			case 304:
-				if ( $cached ) {
-					$cache->set_llms_txt( $cached['body'], $cached['etag'] );
-					$this->serve( $cached['body'] );
+				if ( ! $cached ) {
+					return self::pass( 'revalidated-without-cache' );
 				}
-				return;
+				$cache->set_llms_txt( $cached['body'], $cached['etag'] );
+				return self::body( $cached['body'], 'revalidated' );
 
 			case 401:
 				update_option( 'citecue_auth_failed', time(), false );
 				$cache->trip_circuit( Citecue_Cache::AUTH_CIRCUIT_TTL );
-				return;
+				return self::pass( 'unauthorized' );
 
 			case 404:
 				// llms.txt serving disabled on CiteCue: evict the cached copy
-				// (so it cannot resurface stale) and fall through to WordPress.
+				// (so it cannot resurface stale), remember the miss so the next
+				// visitors are answered locally, and fall through to WordPress.
 				$cache->delete_llms_txt();
-				return;
+				$cache->set_llms_txt_miss();
+				return self::pass( 'disabled-upstream' );
 
 			default:
-				return;
+				return self::pass( 'server-error' );
 		}
+	}
+
+	/**
+	 * A "leave this request to WordPress" decision.
+	 *
+	 * @param string $reason Why nothing is served (diagnostic only).
+	 * @return array{serve:bool,body:string,reason:string}
+	 */
+	private static function pass( $reason ) {
+		return array(
+			'serve'  => false,
+			'body'   => '',
+			'reason' => $reason,
+		);
+	}
+
+	/**
+	 * A "serve this llms.txt body" decision.
+	 *
+	 * @param string $body   llms.txt content.
+	 * @param string $reason Where the body came from (diagnostic only).
+	 * @return array{serve:bool,body:string,reason:string}
+	 */
+	private static function body( $body, $reason ) {
+		return array(
+			'serve'  => true,
+			'body'   => $body,
+			'reason' => $reason,
+		);
 	}
 
 	/**

@@ -52,24 +52,39 @@ class Citecue_Proxy {
 	 * @return void
 	 */
 	public function maybe_serve() {
+		$decision = $this->decide();
+
+		if ( $decision['serve'] ) {
+			$this->serve( $decision['body'], $decision['mode'], $decision['stale'] );
+		}
+	}
+
+	/**
+	 * Decides what this request should get, without emitting anything. All of
+	 * the serving logic lives here so it can be exercised (and tested) without
+	 * the headers-and-exit of {@see self::serve()}.
+	 *
+	 * @return array{serve:bool,body:string,mode:string,stale:bool,reason:string}
+	 */
+	public function decide() {
 		if ( ! $this->is_eligible_request() ) {
-			return;
+			return self::pass( 'not-eligible' );
 		}
 
 		$settings = $this->plugin->settings;
 		if ( ! $settings->get( 'serve_enabled' ) || ! $settings->is_delivery_configured() ) {
-			return;
+			return self::pass( 'not-configured' );
 		}
 
 		$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
 		$crawler    = $this->plugin->crawlers->match( $user_agent );
 		if ( null === $crawler ) {
-			return;
+			return self::pass( 'not-a-crawler' );
 		}
 
 		$url = $this->current_url();
 		if ( '' === $url ) {
-			return;
+			return self::pass( 'no-url' );
 		}
 
 		/**
@@ -80,7 +95,7 @@ class Citecue_Proxy {
 		 * @param string $url          Absolute request URL.
 		 */
 		if ( ! apply_filters( 'citecue_should_serve', true, $crawler, $url ) ) {
-			return;
+			return self::pass( 'vetoed' );
 		}
 
 		$path  = (string) wp_parse_url( $url, PHP_URL_PATH );
@@ -89,7 +104,7 @@ class Citecue_Proxy {
 		// Recent miss for this URL: skip the API for a minute (mirrors the
 		// API's own max-age=60 on the miss sentinel).
 		if ( $cache->is_recent_miss( $url ) ) {
-			return;
+			return self::pass( 'recent-miss' );
 		}
 
 		$cached = $cache->get_page( $url );
@@ -97,20 +112,18 @@ class Citecue_Proxy {
 		// Circuit open (recent timeout/auth failure): no API calls. Serve the
 		// stale cached copy when we have one, otherwise pass through.
 		if ( $cache->is_circuit_open() ) {
-			if ( $cached ) {
-				$this->serve( $cached['body'], $cached['mode'], true );
-			}
-			return;
+			return $cached
+				? self::serve_stale( $cached, 'circuit-open' )
+				: self::pass( 'circuit-open' );
 		}
 
 		// Global lookup budget: a spoofed crawler UA spraying unique URLs
 		// cannot force unbounded outbound API calls. Exhausted budget degrades
 		// exactly like an open circuit.
-		if ( ! $this->consume_lookup_budget() ) {
-			if ( $cached ) {
-				$this->serve( $cached['body'], $cached['mode'], true );
-			}
-			return;
+		if ( ! $cache->consume_lookup_budget() ) {
+			return $cached
+				? self::serve_stale( $cached, 'budget-exhausted' )
+				: self::pass( 'budget-exhausted' );
 		}
 
 		$response = $this->plugin->api->get_page( $url, $crawler, $cached ? $cached['etag'] : '' );
@@ -119,34 +132,44 @@ class Citecue_Proxy {
 			// Timeout / connection failure: open the circuit and degrade.
 			$cache->trip_circuit();
 			$this->plugin->activity->record( $crawler, $path, $cached ? 'served-stale' : 'error' );
-			if ( $cached ) {
-				$this->serve( $cached['body'], $cached['mode'], true );
-			}
-			return;
+			return $cached
+				? self::serve_stale( $cached, 'transport-error' )
+				: self::pass( 'transport-error' );
 		}
 
 		switch ( $response['status'] ) {
 			case 200:
 				$cache->set_page( $url, $response['body'], $response['etag'], $response['mode'] );
 				$this->plugin->activity->record( $crawler, $path, 'served' );
-				$this->serve( $response['body'], $response['mode'], false );
-				return; // Unreachable (serve exits); defensive.
+				return array(
+					'serve'  => true,
+					'body'   => $response['body'],
+					'mode'   => $response['mode'],
+					'stale'  => false,
+					'reason' => 'fresh',
+				);
 
 			case 304:
 				// Our cached body is current; CiteCue already counted this as served.
-				if ( $cached ) {
-					$cache->touch_page( $url );
-					$this->plugin->activity->record( $crawler, $path, 'served' );
-					$this->serve( $cached['body'], $cached['mode'], false );
+				if ( ! $cached ) {
+					return self::pass( 'revalidated-without-cache' );
 				}
-				return;
+				$cache->touch_page( $url );
+				$this->plugin->activity->record( $crawler, $path, 'served' );
+				return array(
+					'serve'  => true,
+					'body'   => $cached['body'],
+					'mode'   => $cached['mode'],
+					'stale'  => false,
+					'reason' => 'revalidated',
+				);
 
 			case 401:
 				// Bad/revoked API key: remember it for the admin notice and
 				// back off for a while — retrying immediately cannot help.
 				update_option( 'citecue_auth_failed', time(), false );
 				$cache->trip_circuit( Citecue_Cache::AUTH_CIRCUIT_TTL );
-				return;
+				return self::pass( 'unauthorized' );
 
 			case 404:
 				// Miss sentinel: CiteCue recorded the passthrough hit
@@ -157,17 +180,49 @@ class Citecue_Proxy {
 				$cache->delete_page( $url );
 				$cache->set_miss( $url );
 				$this->plugin->activity->record( $crawler, $path, 'passthrough' );
-				return;
+				return self::pass( 'miss' );
 
 			default:
 				// Unexpected server state: brief back-off, degrade gracefully.
 				$cache->trip_circuit();
 				$this->plugin->activity->record( $crawler, $path, $cached ? 'served-stale' : 'error' );
-				if ( $cached ) {
-					$this->serve( $cached['body'], $cached['mode'], true );
-				}
-				return;
+				return $cached
+					? self::serve_stale( $cached, 'server-error' )
+					: self::pass( 'server-error' );
 		}
+	}
+
+	/**
+	 * A "leave this request to WordPress" decision.
+	 *
+	 * @param string $reason Why nothing is served (diagnostic only).
+	 * @return array{serve:bool,body:string,mode:string,stale:bool,reason:string}
+	 */
+	private static function pass( $reason ) {
+		return array(
+			'serve'  => false,
+			'body'   => '',
+			'mode'   => '',
+			'stale'  => false,
+			'reason' => $reason,
+		);
+	}
+
+	/**
+	 * A "serve the cached body past its revalidation window" decision.
+	 *
+	 * @param array  $cached Cache entry.
+	 * @param string $reason Why the cached copy is being used (diagnostic only).
+	 * @return array{serve:bool,body:string,mode:string,stale:bool,reason:string}
+	 */
+	private static function serve_stale( array $cached, $reason ) {
+		return array(
+			'serve'  => true,
+			'body'   => $cached['body'],
+			'mode'   => $cached['mode'],
+			'stale'  => true,
+			'reason' => $reason,
+		);
 	}
 
 	/**
@@ -213,30 +268,6 @@ class Citecue_Proxy {
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			return false;
 		}
-		return true;
-	}
-
-	/**
-	 * Consumes one unit of the per-minute outbound-lookup budget. Bounds the
-	 * delivery API calls an anonymous visitor can trigger by spoofing a
-	 * crawler User-Agent across unique URLs; real crawl bursts beyond the
-	 * budget just fall through to the normal page for the rest of the minute.
-	 *
-	 * @return bool Whether an API lookup may be made.
-	 */
-	private function consume_lookup_budget() {
-		/**
-		 * Filters the maximum delivery API lookups per minute.
-		 *
-		 * @param int $limit Default 120.
-		 */
-		$limit = max( 1, (int) apply_filters( 'citecue_lookup_budget', 120 ) );
-		$key   = 'citecue_budget_' . (int) floor( time() / MINUTE_IN_SECONDS );
-		$count = (int) get_transient( $key );
-		if ( $count >= $limit ) {
-			return false;
-		}
-		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
 		return true;
 	}
 

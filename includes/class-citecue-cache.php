@@ -176,6 +176,31 @@ class Citecue_Cache {
 	}
 
 	/**
+	 * Consumes one unit of the per-minute outbound-lookup budget, shared by
+	 * every path that calls the delivery API. Bounds the requests an anonymous
+	 * visitor can trigger — by spoofing a crawler User-Agent across unique
+	 * URLs, or by hammering llms.txt — to a known ceiling per site. Beyond it
+	 * the plugin degrades exactly as it does with an open circuit.
+	 *
+	 * @return bool Whether an API lookup may be made.
+	 */
+	public function consume_lookup_budget() {
+		/**
+		 * Filters the maximum delivery API lookups per minute.
+		 *
+		 * @param int $limit Default 120.
+		 */
+		$limit = max( 1, (int) apply_filters( 'citecue_lookup_budget', 120 ) );
+		$key   = 'citecue_budget_' . (int) floor( time() / MINUTE_IN_SECONDS );
+		$count = (int) get_transient( $key );
+		if ( $count >= $limit ) {
+			return false;
+		}
+		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
+		return true;
+	}
+
+	/**
 	 * Cached llms.txt, or null.
 	 *
 	 * @return array{body:string,etag:string,cached_at:int}|null
@@ -192,6 +217,27 @@ class Citecue_Cache {
 	 */
 	public function delete_llms_txt() {
 		delete_transient( 'citecue_llms_' . $this->salt() );
+	}
+
+	/**
+	 * Whether CiteCue recently reported that this project publishes no
+	 * llms.txt. Unlike the page path, /llms.txt is served to every visitor, so
+	 * without this a project with llms.txt switched off would turn each hit on
+	 * the URL into an outbound API call.
+	 *
+	 * @return bool
+	 */
+	public function is_recent_llms_txt_miss() {
+		return (bool) get_transient( 'citecue_llms_ms_' . $this->salt() );
+	}
+
+	/**
+	 * Records that CiteCue has no llms.txt for this project.
+	 *
+	 * @return void
+	 */
+	public function set_llms_txt_miss() {
+		set_transient( 'citecue_llms_ms_' . $this->salt(), 1, self::MISS_TTL );
 	}
 
 	/**
