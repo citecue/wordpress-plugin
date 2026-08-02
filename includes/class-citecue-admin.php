@@ -1,7 +1,12 @@
 <?php
 /**
- * Admin settings screen: connection to CiteCue, project selection, delivery
- * toggles, content-ingest configuration, and a recent-activity view.
+ * Admin settings screen.
+ *
+ * The screen has two shapes, because a site that has never been connected and
+ * a site that is running have almost nothing in common. Before connecting
+ * there is one button and one sentence; the API key, project selector and API
+ * base are folded away as the fallback they are. After connecting the setup
+ * fields disappear and what is left is what an operator actually adjusts.
  *
  * @package Citecue
  */
@@ -39,7 +44,11 @@ class Citecue_Admin {
 	public function register() {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_action( 'admin_init', array( $this, 'maybe_claim_connect' ) );
 		add_action( 'admin_notices', array( $this, 'notices' ) );
+		add_action( 'admin_post_citecue_connect_start', array( $this, 'handle_connect_start' ) );
+		add_action( 'admin_post_citecue_disconnect', array( $this, 'handle_disconnect' ) );
+		add_action( 'admin_post_citecue_verify_install', array( $this, 'handle_verify_install' ) );
 		add_action( 'admin_post_citecue_test_connection', array( $this, 'handle_test_connection' ) );
 		add_action( 'admin_post_citecue_refresh_crawlers', array( $this, 'handle_refresh_crawlers' ) );
 		add_action( 'admin_post_citecue_flush_cache', array( $this, 'handle_flush_cache' ) );
@@ -132,8 +141,15 @@ class Citecue_Admin {
 		$messages = array(
 			'connected'     => array( 'success', __( 'Connected to CiteCue.', 'citecue' ) ),
 			'auto_selected' => array( 'success', __( 'Connected to CiteCue — the project matching this site was selected automatically.', 'citecue' ) ),
+			'paired'        => array( 'success', __( 'Connected. CiteCue now knows this site’s address and can serve optimized pages to AI crawlers.', 'citecue' ) ),
+			'pair_state'    => array( 'error', __( 'That connection link did not match this WordPress session, so it was not used. Start the connection again.', 'citecue' ) ),
+			'pair_fail'     => array( 'error', __( 'The connection could not be completed.', 'citecue' ) ),
+			'disconnected'  => array( 'success', __( 'Disconnected from CiteCue. Optimized pages are no longer served.', 'citecue' ) ),
+			'verified'      => array( 'success', __( 'Verified — this site answers AI crawlers with CiteCue’s llms.txt.', 'citecue' ) ),
+			'verify_fail'   => array( 'warning', __( 'Verification failed. See the details below.', 'citecue' ) ),
+			'verify_skip'   => array( 'info', __( 'The check could not run. See the details below.', 'citecue' ) ),
 			'auth'          => array( 'error', __( 'CiteCue rejected the API key.', 'citecue' ) ),
-			'conn_fail'     => array( 'error', __( 'Could not reach CiteCue. Check the API base URL and try again.', 'citecue' ) ),
+			'conn_fail'     => array( 'error', __( 'Could not reach CiteCue. Check your connection and try again.', 'citecue' ) ),
 			'crawlers_ok'   => array( 'success', __( 'Crawler registry refreshed.', 'citecue' ) ),
 			'crawlers_fail' => array( 'warning', __( 'Could not refresh the crawler registry; the current list stays active.', 'citecue' ) ),
 			'flushed'       => array( 'success', __( 'Delivery cache flushed.', 'citecue' ) ),
@@ -141,9 +157,110 @@ class Citecue_Admin {
 		);
 
 		$code = sanitize_key( wp_unslash( $_GET['citecue_msg'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		if ( isset( $messages[ $code ] ) ) {
-			echo '<div class="notice notice-' . esc_attr( $messages[ $code ][0] ) . ' is-dismissible"><p>' . esc_html( $messages[ $code ][1] ) . '</p></div>';
+		if ( ! isset( $messages[ $code ] ) ) {
+			return;
 		}
+
+		// The handshake failure reason is carried out-of-band rather than in the
+		// URL: it is API text, not something to reflect back from a query arg.
+		$detail = 'pair_fail' === $code ? get_transient( 'citecue_connect_error' ) : '';
+		if ( $detail ) {
+			delete_transient( 'citecue_connect_error' );
+		}
+
+		echo '<div class="notice notice-' . esc_attr( $messages[ $code ][0] ) . ' is-dismissible"><p>'
+			. esc_html( $messages[ $code ][1] )
+			. ( $detail ? ' ' . esc_html( $detail ) : '' )
+			. '</p></div>';
+	}
+
+	/**
+	 * Completes a handshake when CiteCue redirects back with a one-time code.
+	 *
+	 * There is no nonce on this request and there cannot be one — the redirect
+	 * originates at CiteCue. The state token minted by Citecue_Connect::start()
+	 * is the CSRF defence: it lives server-side, is bound to this user, is
+	 * single-use, and expires in fifteen minutes.
+	 *
+	 * @return void
+	 */
+	public function maybe_claim_connect() {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- the state token below is the nonce.
+		if ( ! isset( $_GET['page'], $_GET['citecue_code'] ) || 'citecue' !== $_GET['page'] ) {
+			return;
+		}
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$state = isset( $_GET['citecue_state'] ) ? sanitize_text_field( wp_unslash( $_GET['citecue_state'] ) ) : '';
+		$code  = sanitize_text_field( wp_unslash( $_GET['citecue_code'] ) );
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		if ( ! $this->plugin->connect->verify_state( $state ) ) {
+			$this->redirect_with( 'pair_state' );
+		}
+
+		$result = $this->plugin->connect->claim( $code );
+		if ( is_wp_error( $result ) ) {
+			set_transient( 'citecue_connect_error', $result->get_error_message(), MINUTE_IN_SECONDS );
+			$this->redirect_with( 'pair_fail' );
+		}
+
+		// Answer the "did it work?" question before it is asked.
+		$this->plugin->connect->verify_install();
+
+		$this->redirect_with( 'paired' );
+	}
+
+	/**
+	 * Sends the admin to CiteCue to pick the project for this site.
+	 *
+	 * @return void
+	 */
+	public function handle_connect_start() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+		}
+		check_admin_referer( 'citecue_connect_start' );
+
+		// Not wp_safe_redirect(): this one deliberately leaves the site, to the
+		// configured CiteCue app and nowhere else.
+		wp_redirect( $this->plugin->connect->start( $this->settings_url() ) ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
+		exit;
+	}
+
+	/**
+	 * Forgets the CiteCue credentials.
+	 *
+	 * @return void
+	 */
+	public function handle_disconnect() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+		}
+		check_admin_referer( 'citecue_disconnect' );
+
+		$this->plugin->connect->disconnect();
+		$this->redirect_with( 'disconnected' );
+	}
+
+	/**
+	 * Runs the loopback install check.
+	 *
+	 * @return void
+	 */
+	public function handle_verify_install() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+		}
+		check_admin_referer( 'citecue_verify_install' );
+
+		$result = $this->plugin->connect->verify_install();
+		if ( ! empty( $result['skipped'] ) ) {
+			$this->redirect_with( 'verify_skip' );
+		}
+		$this->redirect_with( $result['ok'] ? 'verified' : 'verify_fail' );
 	}
 
 	/**
@@ -269,73 +386,102 @@ class Citecue_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'CiteCue AI Auto-Fix', 'citecue' ); ?></h1>
+			<?php
+			if ( $this->plugin->settings->is_connected() ) {
+				$this->render_connected();
+			} else {
+				$this->render_setup();
+			}
+			?>
+		</div>
+		<?php
+	}
 
+	/**
+	 * First run: one button. The API-key route stays available underneath for
+	 * installs that cannot complete a browser round-trip to CiteCue — an
+	 * intranet site, a locked-down staging host — but it is no longer the
+	 * thing a new customer is confronted with.
+	 *
+	 * @return void
+	 */
+	private function render_setup() {
+		$settings = $this->plugin->settings;
+		$host     = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		?>
+		<p style="max-width:720px;">
+			<?php esc_html_e( 'Serves CiteCue-optimized versions of your pages to AI bots and crawlers, publishes your llms.txt, and can receive new brand-building content from CiteCue as draft posts.', 'citecue' ); ?>
+		</p>
+
+		<div class="card" style="max-width:720px;">
+			<h2 style="margin-top:0;"><?php esc_html_e( 'Connect this site to CiteCue', 'citecue' ); ?></h2>
+			<p>
+				<?php
+				printf(
+					/* translators: %s: this site's host name. */
+					esc_html__( 'You will be sent to CiteCue to confirm which project covers %s, then returned here. There is nothing to copy or paste — the API key and the content-push secret are exchanged for you.', 'citecue' ),
+					'<strong>' . esc_html( $host ) . '</strong>'
+				);
+				?>
+			</p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="citecue_connect_start" />
+				<?php wp_nonce_field( 'citecue_connect_start' ); ?>
+				<?php submit_button( __( 'Connect to CiteCue', 'citecue' ), 'primary', 'submit', false ); ?>
+			</form>
+		</div>
+
+		<details style="margin-top:20px;max-width:720px;">
+			<summary style="cursor:pointer;"><?php esc_html_e( 'Connect with an API key instead', 'citecue' ); ?></summary>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php?action=citecue_test_connection' ) ); ?>">
+				<?php
+				wp_nonce_field( 'citecue_test_connection', 'citecue_test_nonce' );
+				// This form owns only the connection fields, but sanitize()
+				// reads every checkbox as "absent means off" — so the delivery
+				// toggles it does not render travel as hidden inputs rather
+				// than being silently switched off by a save.
+				$this->preserve_toggles( array( 'serve_enabled', 'llms_txt_enabled', 'ingest_enabled' ) );
+				?>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue' ); ?></label></th>
+						<td>
+							<input type="password" id="citecue_api_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key]" value="" class="regular-text" autocomplete="off" placeholder="ck_live_…" />
+							<p class="description"><?php esc_html_e( 'Create an organization API key in CiteCue under Settings → API keys. The project matching this site’s domain is selected automatically.', 'citecue' ); ?></p>
+						</td>
+					</tr>
+					<?php $this->render_api_base_row( $settings ); ?>
+				</table>
+				<?php submit_button( __( 'Save & test connection', 'citecue' ), 'secondary' ); ?>
+			</form>
+		</details>
+		<?php
+	}
+
+	/**
+	 * The running site: status first, then the handful of switches an operator
+	 * changes. Everything used only to establish or repair the connection is
+	 * folded into "Connection details" at the bottom.
+	 *
+	 * @return void
+	 */
+	private function render_connected() {
 		$settings = $this->plugin->settings;
 		$projects = get_option( 'citecue_projects_cache', array() );
 		$projects = is_array( $projects ) ? $projects : array();
 		$secret   = $settings->ensure_ingest_secret();
 		$registry = $this->plugin->crawlers->registry_info();
-		$api_key  = (string) $settings->get( 'api_key' );
+
+		$this->render_status_card();
 		?>
-		<div class="wrap">
-			<h1><?php esc_html_e( 'CiteCue AI Auto-Fix', 'citecue' ); ?></h1>
-			<p>
-				<?php esc_html_e( 'Serves CiteCue-optimized versions of your pages to AI bots and crawlers, publishes your llms.txt, and can receive new brand-building content from CiteCue as draft posts.', 'citecue' ); ?>
-			</p>
 
 			<form method="post" action="options.php">
 				<?php settings_fields( 'citecue' ); ?>
 
-				<h2><?php esc_html_e( '1. Connection', 'citecue' ); ?></h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue' ); ?></label></th>
-						<td>
-							<input type="password" id="citecue_api_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key]" value="" class="regular-text" autocomplete="off"
-								placeholder="<?php echo esc_attr( '' !== $api_key ? __( 'Saved — leave blank to keep', 'citecue' ) : 'ck_live_…' ); ?>" />
-							<?php if ( '' !== $api_key ) : ?>
-								<label style="margin-left:8px;"><input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key_clear]" value="1" /> <?php esc_html_e( 'Clear stored key', 'citecue' ); ?></label>
-							<?php endif; ?>
-							<p class="description"><?php esc_html_e( 'Create an organization API key in CiteCue under Settings → API keys (starts with ck_live_).', 'citecue' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="citecue_public_key"><?php esc_html_e( 'Project', 'citecue' ); ?></label></th>
-						<td>
-							<select id="citecue_public_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[public_key]">
-								<option value=""><?php esc_html_e( '— Not selected —', 'citecue' ); ?></option>
-								<?php
-								$current_key   = (string) $settings->get( 'public_key' );
-								$current_found = false;
-								foreach ( $projects as $project ) :
-									if ( $project['publicKey'] === $current_key ) {
-										$current_found = true;
-									}
-									?>
-									<option value="<?php echo esc_attr( $project['publicKey'] ); ?>" <?php selected( $current_key, $project['publicKey'] ); ?>>
-										<?php echo esc_html( $project['domain'] ); ?>
-										<?php echo $project['enabled'] ? '' : esc_html__( '(delivery disabled in CiteCue)', 'citecue' ); ?>
-									</option>
-								<?php endforeach; ?>
-								<?php if ( '' !== $current_key && ! $current_found ) : ?>
-									<option value="<?php echo esc_attr( $current_key ); ?>" selected>
-										<?php echo esc_html( '' !== (string) $settings->get( 'project_domain' ) ? $settings->get( 'project_domain' ) : $current_key ); ?>
-									</option>
-								<?php endif; ?>
-							</select>
-							<p class="description"><?php esc_html_e( 'Use “Save & test connection” to load your CiteCue projects. The project matching this site’s domain is selected automatically.', 'citecue' ); ?></p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="citecue_api_base"><?php esc_html_e( 'API base URL', 'citecue' ); ?></label></th>
-						<td>
-							<input type="url" id="citecue_api_base" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_base]" value="<?php echo esc_attr( $settings->api_base() ); ?>" class="regular-text" />
-							<p class="description"><?php esc_html_e( 'Only change this for a self-hosted CiteCue deployment.', 'citecue' ); ?></p>
-						</td>
-					</tr>
-				</table>
-
-				<h2><?php esc_html_e( '2. Delivery to AI crawlers', 'citecue' ); ?></h2>
+				<h2><?php esc_html_e( 'Delivery to AI crawlers', 'citecue' ); ?></h2>
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Serve optimized pages', 'citecue' ); ?></th>
@@ -366,7 +512,7 @@ class Citecue_Admin {
 					</tr>
 				</table>
 
-				<h2><?php esc_html_e( '3. Content from CiteCue', 'citecue' ); ?></h2>
+				<h2><?php esc_html_e( 'Content from CiteCue', 'citecue' ); ?></h2>
 				<p class="description" style="max-width:720px;">
 					<?php esc_html_e( 'CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into this site through a signed endpoint. Pushed content is created as a draft by default so nothing goes live without review.', 'citecue' ); ?>
 				</p>
@@ -431,24 +577,67 @@ class Citecue_Admin {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Shared secret', 'citecue' ); ?></th>
 						<td>
-							<code style="user-select:all;"><?php echo esc_html( $secret ); ?></code>
-							<p class="description"><?php esc_html_e( 'Paste this into CiteCue (or your automation) to sign pushes. Requests are authenticated with an HMAC-SHA256 signature — see the plugin README for the exact scheme.', 'citecue' ); ?></p>
+							<details>
+								<summary style="cursor:pointer;"><?php esc_html_e( 'Show the signing secret', 'citecue' ); ?></summary>
+								<p><code style="user-select:all;"><?php echo esc_html( $secret ); ?></code></p>
+							</details>
+							<p class="description"><?php esc_html_e( 'CiteCue already holds this secret — connecting handed it over. You only need it to sign pushes from your own automation; the README documents the HMAC-SHA256 scheme.', 'citecue' ); ?></p>
 						</td>
 					</tr>
 				</table>
 
-				<p class="submit">
-					<?php submit_button( __( 'Save changes', 'citecue' ), 'primary', 'submit', false ); ?>
+				<?php submit_button( __( 'Save changes', 'citecue' ) ); ?>
+
+				<details style="max-width:720px;">
+					<summary style="cursor:pointer;"><?php esc_html_e( 'Connection details', 'citecue' ); ?></summary>
+					<table class="form-table" role="presentation">
+						<tr>
+							<th scope="row"><label for="citecue_public_key"><?php esc_html_e( 'Project', 'citecue' ); ?></label></th>
+							<td>
+								<select id="citecue_public_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[public_key]">
+									<option value=""><?php esc_html_e( '— Not selected —', 'citecue' ); ?></option>
+									<?php
+									$current_key   = (string) $settings->get( 'public_key' );
+									$current_found = false;
+									foreach ( $projects as $project ) :
+										if ( $project['publicKey'] === $current_key ) {
+											$current_found = true;
+										}
+										?>
+										<option value="<?php echo esc_attr( $project['publicKey'] ); ?>" <?php selected( $current_key, $project['publicKey'] ); ?>>
+											<?php echo esc_html( $project['domain'] ); ?>
+											<?php echo $project['enabled'] ? '' : esc_html__( '(delivery disabled in CiteCue)', 'citecue' ); ?>
+										</option>
+									<?php endforeach; ?>
+									<?php if ( '' !== $current_key && ! $current_found ) : ?>
+										<option value="<?php echo esc_attr( $current_key ); ?>" selected>
+											<?php echo esc_html( '' !== (string) $settings->get( 'project_domain' ) ? $settings->get( 'project_domain' ) : $current_key ); ?>
+										</option>
+									<?php endif; ?>
+								</select>
+								<p class="description"><?php esc_html_e( 'Chosen when you connected. Change it only to point this site at a different CiteCue project.', 'citecue' ); ?></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue' ); ?></label></th>
+							<td>
+								<input type="password" id="citecue_api_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key]" value="" class="regular-text" autocomplete="off" placeholder="<?php esc_attr_e( 'Saved — leave blank to keep', 'citecue' ); ?>" />
+								<label style="margin-left:8px;"><input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key_clear]" value="1" /> <?php esc_html_e( 'Clear stored key', 'citecue' ); ?></label>
+								<p class="description"><?php esc_html_e( 'Only needed to replace a revoked key without reconnecting.', 'citecue' ); ?></p>
+							</td>
+						</tr>
+						<?php $this->render_api_base_row( $settings ); ?>
+					</table>
 					<?php
-					// The test button submits THIS form (so an API key that was
-					// just pasted is saved and tested in one step) but routes it
-					// to admin-post via formaction; the nonce below rides along.
+					// Reloads the project list against the stored key. Posted
+					// from this same form via formaction, so a key typed just
+					// above is saved and tested in one step.
 					wp_nonce_field( 'citecue_test_connection', 'citecue_test_nonce' );
 					?>
 					<button type="submit" class="button" formmethod="post" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=citecue_test_connection' ) ); ?>">
 						<?php esc_html_e( 'Save & test connection', 'citecue' ); ?>
 					</button>
-				</p>
+				</details>
 			</form>
 
 			<hr />
@@ -478,21 +667,133 @@ class Citecue_Admin {
 				}
 				?>
 			</p>
-			<p class="description">
-				<?php
-				printf(
-					/* translators: %s: curl command. */
-					esc_html__( 'Verify serving from a terminal: %s — the response should include the “x-citecue” header.', 'citecue' ),
-					'<code>curl -si -A GPTBot ' . esc_html( home_url( '/llms.txt' ) ) . '</code>'
-				);
-				?>
-			</p>
 
 			<h2><?php esc_html_e( 'Recent AI crawler activity', 'citecue' ); ?></h2>
 			<?php $this->render_activity(); ?>
 			<p class="description"><?php esc_html_e( 'Full analytics live in CiteCue → Agent Traffic. This local view exists to verify the integration is working.', 'citecue' ); ?></p>
+		<?php
+	}
+
+	/**
+	 * The "is this working?" panel: which project the site is paired with, the
+	 * result of the last loopback check, and the two things there are to do
+	 * about it.
+	 *
+	 * @return void
+	 */
+	private function render_status_card() {
+		$settings = $this->plugin->settings;
+		$domain   = (string) $settings->get( 'project_domain' );
+		$verified = $this->plugin->connect->last_verification();
+		?>
+		<div class="card" style="max-width:720px;">
+			<h2 style="margin-top:0;"><?php esc_html_e( 'Connected to CiteCue', 'citecue' ); ?></h2>
+			<table class="widefat striped" style="border:0;">
+				<tr>
+					<td style="width:34%;"><?php esc_html_e( 'Project', 'citecue' ); ?></td>
+					<td>
+						<?php if ( '' !== $domain ) : ?>
+							<strong><?php echo esc_html( $domain ); ?></strong>
+						<?php else : ?>
+							<em><?php esc_html_e( 'No project selected — pick one under Connection details.', 'citecue' ); ?></em>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'Optimized pages', 'citecue' ); ?></td>
+					<td><?php echo $settings->get( 'serve_enabled' ) ? esc_html__( 'Served to AI crawlers', 'citecue' ) : esc_html__( 'Off', 'citecue' ); ?></td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'llms.txt', 'citecue' ); ?></td>
+					<td>
+						<?php if ( $settings->get( 'llms_txt_enabled' ) ) : ?>
+							<a href="<?php echo esc_url( home_url( '/llms.txt' ) ); ?>"><?php echo esc_html( home_url( '/llms.txt' ) ); ?></a>
+						<?php else : ?>
+							<?php esc_html_e( 'Off', 'citecue' ); ?>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'Content pushes', 'citecue' ); ?></td>
+					<td><?php echo $settings->get( 'ingest_enabled' ) ? esc_html__( 'Accepted (as drafts, unless raised below)', 'citecue' ) : esc_html__( 'Not accepted', 'citecue' ); ?></td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'Last check', 'citecue' ); ?></td>
+					<td>
+						<?php if ( null === $verified ) : ?>
+							<em><?php esc_html_e( 'Not checked yet.', 'citecue' ); ?></em>
+						<?php elseif ( ! empty( $verified['ok'] ) ) : ?>
+							<span style="color:#046b46;">&#10003;</span>
+							<?php
+							printf(
+								/* translators: %s: human time diff. */
+								esc_html__( 'Serving CiteCue’s llms.txt (checked %s ago)', 'citecue' ),
+								esc_html( human_time_diff( (int) $verified['checked_at'] ) )
+							);
+							?>
+						<?php elseif ( ! empty( $verified['skipped'] ) ) : ?>
+							<span style="color:#996800;">&#8212;</span>
+							<?php echo esc_html( $verified['message'] ); ?>
+						<?php else : ?>
+							<span style="color:#b32d2e;">&#10007;</span>
+							<?php echo esc_html( $verified['message'] ); ?>
+						<?php endif; ?>
+					</td>
+				</tr>
+			</table>
+			<p>
+				<?php $this->action_button( 'citecue_verify_install', __( 'Verify installation', 'citecue' ) ); ?>
+				<?php $this->action_button( 'citecue_disconnect', __( 'Disconnect', 'citecue' ) ); ?>
+			</p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * The API base row, or a read-only note when wp-config.php pins it.
+	 *
+	 * @param Citecue_Settings $settings Settings.
+	 * @return void
+	 */
+	private function render_api_base_row( Citecue_Settings $settings ) {
+		?>
+		<tr>
+			<th scope="row"><label for="citecue_api_base"><?php esc_html_e( 'API base URL', 'citecue' ); ?></label></th>
+			<td>
+				<?php if ( $settings->api_base_is_locked() ) : ?>
+					<code><?php echo esc_html( $settings->api_base() ); ?></code>
+					<p class="description"><?php esc_html_e( 'Pinned by the CITECUE_API_BASE constant in wp-config.php.', 'citecue' ); ?></p>
+				<?php else : ?>
+					<input type="url" id="citecue_api_base" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_base]" value="<?php echo esc_attr( $settings->api_base() ); ?>" class="regular-text" />
+					<p class="description"><?php esc_html_e( 'Only change this for a self-hosted CiteCue deployment.', 'citecue' ); ?></p>
+				<?php endif; ?>
+			</td>
+		</tr>
+		<?php
+	}
+
+	/**
+	 * Emits hidden inputs carrying the current value of boolean settings this
+	 * form does not render.
+	 *
+	 * A missing checkbox reads as "off" in sanitize() — correct for the form
+	 * that owns the checkbox, destructive for one that does not. Any partial
+	 * form posting the option must therefore say what it is not changing.
+	 *
+	 * @param array $keys Setting keys to carry through untouched.
+	 * @return void
+	 */
+	private function preserve_toggles( array $keys ) {
+		foreach ( $keys as $key ) {
+			if ( ! $this->plugin->settings->get( $key ) ) {
+				continue;
+			}
+			printf(
+				'<input type="hidden" name="%s[%s]" value="1" />',
+				esc_attr( Citecue_Settings::OPTION ),
+				esc_attr( $key )
+			);
+		}
 	}
 
 	/**

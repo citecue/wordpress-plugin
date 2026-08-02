@@ -28,6 +28,7 @@ require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-crawlers.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-cache.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-activity-log.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-api-client.php';
+require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-connect.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-proxy.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-llms-txt.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-ingest.php';

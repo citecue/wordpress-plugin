@@ -60,6 +60,13 @@ final class Citecue_Plugin {
 	public $api;
 
 	/**
+	 * Pairing handshake with the CiteCue app.
+	 *
+	 * @var Citecue_Connect
+	 */
+	public $connect;
+
+	/**
 	 * Returns (and boots) the singleton.
 	 *
 	 * @return Citecue_Plugin
@@ -80,6 +87,7 @@ final class Citecue_Plugin {
 		$this->cache    = new Citecue_Cache();
 		$this->activity = new Citecue_Activity_Log();
 		$this->api      = new Citecue_Api_Client( $this->settings );
+		$this->connect  = new Citecue_Connect( $this );
 
 		( new Citecue_Llms_Txt( $this ) )->register();
 		( new Citecue_Proxy( $this ) )->register();

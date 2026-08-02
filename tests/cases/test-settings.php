@@ -60,6 +60,68 @@ class Test_Citecue_Settings extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The key-entry fallback stores the submitted key before testing it, so a
+	 * key CiteCue has just rejected is still on disk. Only CiteCue's own
+	 * answer — a project, or the cached project list — proves a connection.
+	 *
+	 * @return void
+	 */
+	public function test_a_stored_key_alone_is_not_a_connection() {
+		$this->settings->update( array( 'api_key' => 'ck_live_rejected' ) );
+
+		$this->assertFalse( $this->settings->is_connected() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_a_selected_project_makes_it_a_connection() {
+		$this->settings->update(
+			array(
+				'api_key'    => 'ck_live_works',
+				'public_key' => 'pk_one',
+			)
+		);
+
+		$this->assertTrue( $this->settings->is_connected() );
+	}
+
+	/**
+	 * A working key whose org has no project for this domain still connected —
+	 * choosing the project is the next step, not a reason to start over.
+	 *
+	 * @return void
+	 */
+	public function test_a_cached_project_list_makes_it_a_connection() {
+		$this->settings->update( array( 'api_key' => 'ck_live_works' ) );
+		update_option( 'citecue_projects_cache', array( array( 'publicKey' => 'pk_elsewhere' ) ) );
+
+		$this->assertTrue( $this->settings->is_connected() );
+	}
+
+	/**
+	 * An empty cache is what a failed config call leaves behind, and must not
+	 * read as success.
+	 *
+	 * @return void
+	 */
+	public function test_an_empty_project_list_is_not_a_connection() {
+		$this->settings->update( array( 'api_key' => 'ck_live_rejected' ) );
+		update_option( 'citecue_projects_cache', array() );
+
+		$this->assertFalse( $this->settings->is_connected() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_no_key_is_never_a_connection() {
+		update_option( 'citecue_projects_cache', array( array( 'publicKey' => 'pk_one' ) ) );
+
+		$this->assertFalse( $this->settings->is_connected() );
+	}
+
+	/**
 	 * Re-saving the settings form posts an empty key field (the real key is
 	 * never rendered), so an empty value must mean "unchanged", not "erase".
 	 *

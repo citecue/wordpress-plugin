@@ -84,9 +84,39 @@ class Citecue_Settings {
 	 * @return void
 	 */
 	public function update( array $partial ) {
-		$merged = array_merge( $this->all(), $partial );
-		update_option( self::OPTION, $merged );
-		$this->values = $merged;
+		update_option( self::OPTION, array_merge( $this->all(), $partial ) );
+		// Drop the cache rather than assume what was written: register_setting()
+		// routes this through sanitize(), which may legitimately store
+		// something other than what was passed in (an empty api_key means
+		// "keep the stored one", not "erase it"). Re-reading is the only way to
+		// hold the value that actually landed.
+		$this->values = null;
+	}
+
+	/**
+	 * A CiteCue origin fixed by the install rather than by the settings form,
+	 * or '' when the stored value governs.
+	 *
+	 * Pointing a site at a different CiteCue deployment is a deployment
+	 * decision — a self-hosted app, a staging origin — not something an
+	 * administrator should be invited to get wrong while pasting a key. When
+	 * one is pinned, api_base() ignores the stored value and the settings
+	 * screen shows the origin read-only.
+	 *
+	 * @return string
+	 */
+	public function pinned_api_base() {
+		$pinned = defined( 'CITECUE_API_BASE' ) ? (string) CITECUE_API_BASE : '';
+
+		/**
+		 * Filters the pinned CiteCue app origin. Defaults to the
+		 * CITECUE_API_BASE constant; '' leaves the setting editable.
+		 *
+		 * @param string $pinned Pinned origin, or ''.
+		 */
+		$pinned = (string) apply_filters( 'citecue_pinned_api_base', $pinned );
+
+		return '' !== $pinned ? untrailingslashit( $pinned ) : '';
 	}
 
 	/**
@@ -95,8 +125,52 @@ class Citecue_Settings {
 	 * @return string
 	 */
 	public function api_base() {
+		$pinned = $this->pinned_api_base();
+		if ( '' !== $pinned ) {
+			return $pinned;
+		}
+
 		$base = untrailingslashit( (string) $this->get( 'api_base' ) );
 		return '' !== $base ? $base : self::DEFAULT_API_BASE;
+	}
+
+	/**
+	 * Whether the API base is fixed by the install, so the UI must not offer
+	 * to edit it.
+	 *
+	 * @return bool
+	 */
+	public function api_base_is_locked() {
+		return '' !== $this->pinned_api_base();
+	}
+
+	/**
+	 * Whether this site has been paired with CiteCue.
+	 *
+	 * Holding an API key is not evidence of a connection. The key-entry
+	 * fallback saves the submitted key *before* testing it, so a key CiteCue
+	 * has just rejected is still on disk — treating that as connected would
+	 * replace the setup screen and its Connect button with a "Connected"
+	 * panel the site has not earned. What only a successful exchange can
+	 * produce is CiteCue's own answer: a selected project, or the org's
+	 * project list cached from a config call.
+	 *
+	 * A site that connected once and whose key was later revoked stays
+	 * "connected" on purpose — its settings are still worth showing, and the
+	 * rejected-key notice already says what is wrong.
+	 *
+	 * @return bool
+	 */
+	public function is_connected() {
+		if ( '' === (string) $this->get( 'api_key' ) ) {
+			return false;
+		}
+		if ( '' !== (string) $this->get( 'public_key' ) ) {
+			return true;
+		}
+
+		$projects = get_option( 'citecue_projects_cache', array() );
+		return is_array( $projects ) && array() !== $projects;
 	}
 
 	/**
