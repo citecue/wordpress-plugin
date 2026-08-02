@@ -145,8 +145,9 @@ class Citecue_Admin {
 			'pair_state'    => array( 'error', __( 'That connection link did not match this WordPress session, so it was not used. Start the connection again.', 'citecue' ) ),
 			'pair_fail'     => array( 'error', __( 'The connection could not be completed.', 'citecue' ) ),
 			'disconnected'  => array( 'success', __( 'Disconnected from CiteCue. Optimized pages are no longer served.', 'citecue' ) ),
-			'verified'      => array( 'success', __( 'Verified — this site answers AI crawlers with CiteCue’s headers.', 'citecue' ) ),
+			'verified'      => array( 'success', __( 'Verified — this site answers AI crawlers with CiteCue’s llms.txt.', 'citecue' ) ),
 			'verify_fail'   => array( 'warning', __( 'Verification failed. See the details below.', 'citecue' ) ),
+			'verify_skip'   => array( 'info', __( 'The check could not run. See the details below.', 'citecue' ) ),
 			'auth'          => array( 'error', __( 'CiteCue rejected the API key.', 'citecue' ) ),
 			'conn_fail'     => array( 'error', __( 'Could not reach CiteCue. Check your connection and try again.', 'citecue' ) ),
 			'crawlers_ok'   => array( 'success', __( 'Crawler registry refreshed.', 'citecue' ) ),
@@ -256,6 +257,9 @@ class Citecue_Admin {
 		check_admin_referer( 'citecue_verify_install' );
 
 		$result = $this->plugin->connect->verify_install();
+		if ( ! empty( $result['skipped'] ) ) {
+			$this->redirect_with( 'verify_skip' );
+		}
 		$this->redirect_with( $result['ok'] ? 'verified' : 'verify_fail' );
 	}
 
@@ -723,10 +727,13 @@ class Citecue_Admin {
 							<?php
 							printf(
 								/* translators: %s: human time diff. */
-								esc_html__( 'Serving CiteCue headers (checked %s ago)', 'citecue' ),
+								esc_html__( 'Serving CiteCue’s llms.txt (checked %s ago)', 'citecue' ),
 								esc_html( human_time_diff( (int) $verified['checked_at'] ) )
 							);
 							?>
+						<?php elseif ( ! empty( $verified['skipped'] ) ) : ?>
+							<span style="color:#996800;">&#8212;</span>
+							<?php echo esc_html( $verified['message'] ); ?>
 						<?php else : ?>
 							<span style="color:#b32d2e;">&#10007;</span>
 							<?php echo esc_html( $verified['message'] ); ?>

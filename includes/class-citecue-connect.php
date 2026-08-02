@@ -54,6 +54,15 @@ class Citecue_Connect {
 	const VERIFY_USER_AGENT = 'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)';
 
 	/**
+	 * The exact X-Citecue value Citecue_Llms_Txt::serve() emits. Nothing else
+	 * counts: when llms.txt falls through — switched off here, or 404 from
+	 * CiteCue — the crawler proxy is next on `template_redirect` and may
+	 * answer the same URL with `X-Citecue: served`. Accepting any marker
+	 * would read that as proof llms.txt works.
+	 */
+	const VERIFY_MARKER = 'llms-txt';
+
+	/**
 	 * Plugin container.
 	 *
 	 * @var Citecue_Plugin
@@ -214,9 +223,35 @@ class Citecue_Connect {
 	 * of PHP, which is exactly the misconfiguration worth surfacing in the
 	 * admin rather than in a terminal.
 	 *
-	 * @return array {ok:bool, status:int, marker:string, message:string}
+	 * @return array {ok:bool, skipped:bool, status:int, marker:string, message:string, checked_at:int}
 	 */
 	public function verify_install() {
+		$result               = $this->run_verification();
+		$result['checked_at'] = time();
+		update_option( self::VERIFY_OPTION, $result, false );
+
+		return $result;
+	}
+
+	/**
+	 * The check itself, without the bookkeeping.
+	 *
+	 * @return array {ok:bool, skipped:bool, status:int, marker:string, message:string}
+	 */
+	private function run_verification() {
+		// The only thing this check can prove is that llms.txt is served, so
+		// with llms.txt switched off it proves nothing. Say that rather than
+		// reporting a failure the site did not have.
+		if ( ! $this->plugin->settings->get( 'llms_txt_enabled' ) ) {
+			return self::verdict(
+				false,
+				0,
+				'',
+				__( 'This check asks for the site’s llms.txt, which is switched off below. Turn on “Serve llms.txt” to run it.', 'citecue' ),
+				true
+			);
+		}
+
 		$response = wp_remote_get(
 			home_url( '/llms.txt' ),
 			array(
@@ -233,35 +268,61 @@ class Citecue_Connect {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			$result = array(
-				'ok'      => false,
-				'status'  => 0,
-				'marker'  => '',
-				'message' => $response->get_error_message(),
-			);
-		} else {
-			$status = (int) wp_remote_retrieve_response_code( $response );
-			$marker = (string) wp_remote_retrieve_header( $response, 'x-citecue' );
-
-			$result = array(
-				'ok'      => 200 === $status && '' !== $marker,
-				'status'  => $status,
-				'marker'  => $marker,
-				'message' => '',
-			);
-
-			if ( ! $result['ok'] ) {
-				$result['message'] = '' === $marker
-					? __( 'The response did not carry the “x-citecue” header. A full-page cache or CDN in front of PHP is the usual cause — exclude AI-crawler user agents from it, or use CiteCue’s Cloudflare Worker instead.', 'citecue' )
-					/* translators: %d: HTTP status code. */
-					: sprintf( __( 'The site answered with HTTP %d.', 'citecue' ), $status );
-			}
+			return self::verdict( false, 0, '', $response->get_error_message() );
 		}
 
-		$result['checked_at'] = time();
-		update_option( self::VERIFY_OPTION, $result, false );
+		$status = (int) wp_remote_retrieve_response_code( $response );
+		$marker = (string) wp_remote_retrieve_header( $response, 'x-citecue' );
 
-		return $result;
+		if ( 200 === $status && self::VERIFY_MARKER === $marker ) {
+			return self::verdict( true, $status, $marker, '' );
+		}
+
+		if ( 200 !== $status ) {
+			/* translators: %d: HTTP status code. */
+			return self::verdict( false, $status, $marker, sprintf( __( 'The site answered with HTTP %d.', 'citecue' ), $status ) );
+		}
+
+		if ( '' === $marker ) {
+			return self::verdict(
+				false,
+				$status,
+				$marker,
+				__( 'The response did not carry the “x-citecue” header. A full-page cache or CDN in front of PHP is the usual cause — exclude AI-crawler user agents from it, or use CiteCue’s Cloudflare Worker instead.', 'citecue' )
+			);
+		}
+
+		return self::verdict(
+			false,
+			$status,
+			$marker,
+			sprintf(
+				/* translators: 1: header value received, 2: header value expected. */
+				__( 'Something other than the llms.txt handler answered — the response carried “x-citecue: %1$s” rather than “%2$s”. CiteCue most likely has no llms.txt for this project yet.', 'citecue' ),
+				$marker,
+				self::VERIFY_MARKER
+			)
+		);
+	}
+
+	/**
+	 * One verification result.
+	 *
+	 * @param bool   $ok      Whether the site answered as it should.
+	 * @param int    $status  HTTP status, 0 when no response was obtained.
+	 * @param string $marker  X-Citecue header value received.
+	 * @param string $message Explanation, '' when ok.
+	 * @param bool   $skipped Whether the check could not run at all.
+	 * @return array
+	 */
+	private static function verdict( $ok, $status, $marker, $message, $skipped = false ) {
+		return array(
+			'ok'      => $ok,
+			'skipped' => $skipped,
+			'status'  => $status,
+			'marker'  => $marker,
+			'message' => $message,
+		);
 	}
 
 	/**

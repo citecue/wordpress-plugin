@@ -161,7 +161,50 @@ class Test_Citecue_Admin_Screen extends Citecue_Test_Case {
 
 		$html = $this->render();
 
-		$this->assertStringContainsString( 'Serving CiteCue headers', $html );
+		$this->assertStringContainsString( 'Serving CiteCue', $html );
+	}
+
+	/**
+	 * The reviewer's scenario: the key-entry fallback saves what was typed
+	 * before testing it, so a rejected key is still on disk. The screen must
+	 * keep offering Connect rather than claiming the site is set up.
+	 *
+	 * @return void
+	 */
+	public function test_a_rejected_key_leaves_the_setup_screen_in_place() {
+		// What handle_test_connection() leaves behind when the test fails:
+		// the submitted key, and nothing from CiteCue.
+		$this->plugin->settings->update( array( 'api_key' => 'ck_live_rejected' ) );
+		update_option( 'citecue_auth_failed', time() );
+
+		$html = $this->render();
+
+		$this->assertStringContainsString( 'citecue_connect_start', $html );
+		$this->assertStringNotContainsString( 'Connected to CiteCue', $html );
+	}
+
+	/**
+	 * A key that did work reaches the connected screen even when no project
+	 * matched this site's domain, because picking one is what happens next.
+	 *
+	 * @return void
+	 */
+	public function test_a_working_key_without_a_matching_project_is_connected() {
+		$this->plugin->settings->update( array( 'api_key' => 'ck_live_works' ) );
+		update_option(
+			'citecue_projects_cache',
+			array(
+				array(
+					'publicKey' => 'pk_elsewhere',
+					'domain'    => 'other.example',
+					'enabled'   => true,
+				),
+			)
+		);
+
+		$html = $this->render();
+
+		$this->assertStringContainsString( 'Connected to CiteCue', $html );
 	}
 
 	/**

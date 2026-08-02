@@ -145,12 +145,32 @@ class Citecue_Settings {
 	}
 
 	/**
-	 * Whether this site has been paired with a CiteCue project.
+	 * Whether this site has been paired with CiteCue.
+	 *
+	 * Holding an API key is not evidence of a connection. The key-entry
+	 * fallback saves the submitted key *before* testing it, so a key CiteCue
+	 * has just rejected is still on disk — treating that as connected would
+	 * replace the setup screen and its Connect button with a "Connected"
+	 * panel the site has not earned. What only a successful exchange can
+	 * produce is CiteCue's own answer: a selected project, or the org's
+	 * project list cached from a config call.
+	 *
+	 * A site that connected once and whose key was later revoked stays
+	 * "connected" on purpose — its settings are still worth showing, and the
+	 * rejected-key notice already says what is wrong.
 	 *
 	 * @return bool
 	 */
 	public function is_connected() {
-		return '' !== (string) $this->get( 'api_key' );
+		if ( '' === (string) $this->get( 'api_key' ) ) {
+			return false;
+		}
+		if ( '' !== (string) $this->get( 'public_key' ) ) {
+			return true;
+		}
+
+		$projects = get_option( 'citecue_projects_cache', array() );
+		return is_array( $projects ) && array() !== $projects;
 	}
 
 	/**

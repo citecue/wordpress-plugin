@@ -352,6 +352,39 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * When llms.txt falls through — no llms.txt for the project upstream —
+	 * the crawler proxy is next on template_redirect and can answer the same
+	 * URL with `X-Citecue: served`. Accepting any marker would read that as
+	 * proof llms.txt works, which is precisely what it disproves.
+	 *
+	 * @return void
+	 */
+	public function test_verification_rejects_the_proxys_marker() {
+		$this->http->queue( 'loopback', 200, '<html>optimized page</html>', array( 'x-citecue' => 'served' ) );
+
+		$result = $this->connect->verify_install();
+
+		$this->assertFalse( $result['ok'] );
+		$this->assertStringContainsString( 'served', $result['message'] );
+	}
+
+	/**
+	 * With llms.txt switched off the check can prove nothing, so it reports
+	 * that rather than a failure the site did not have.
+	 *
+	 * @return void
+	 */
+	public function test_verification_is_skipped_when_llms_txt_is_off() {
+		$this->plugin->settings->update( array( 'llms_txt_enabled' => false ) );
+
+		$result = $this->connect->verify_install();
+
+		$this->assertTrue( $result['skipped'] );
+		$this->assertFalse( $result['ok'] );
+		$this->assertSame( 0, $this->http->count( 'loopback' ) );
+	}
+
+	/**
 	 * @return void
 	 */
 	public function test_verification_survives_an_unreachable_site() {

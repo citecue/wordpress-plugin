@@ -139,6 +139,8 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	public function test_uninstall_removes_plugin_options() {
 		$this->configure_delivery();
 		$this->plugin->activity->record( 'GPTBot', '/a/', 'served' );
+		$this->http->queue( 'loopback', 200, 'llms', array( 'x-citecue' => 'llms-txt' ) );
+		$this->plugin->connect->verify_install();
 		Citecue_Plugin::activate();
 
 		$this->run_uninstall();
@@ -146,6 +148,9 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 		$this->assertFalse( get_option( Citecue_Settings::OPTION ) );
 		$this->assertFalse( get_option( Citecue_Activity_Log::OPTION ) );
 		$this->assertFalse( get_option( Citecue_Crawlers::OPTION ) );
+		// Left behind, this outlives a reinstall and reports the previous
+		// installation's result as if it were the new one's.
+		$this->assertFalse( get_option( Citecue_Connect::VERIFY_OPTION ) );
 		$this->assertFalse( wp_next_scheduled( Citecue_Plugin::CRON_HOOK ) );
 	}
 

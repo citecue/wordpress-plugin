@@ -65,7 +65,11 @@ The full server-side contract is in [`docs/connect-handshake.md`](docs/connect-h
 
 ### Verifying
 
-**Settings → CiteCue → Verify installation** requests this site's own `/llms.txt` as GPTBot and checks for the plugin's marker header; the result is shown on the settings screen and re-checked automatically right after connecting. By hand:
+**Settings → CiteCue → Verify installation** requests this site's own `/llms.txt` as GPTBot and requires exactly `x-citecue: llms-txt` back. The result is shown on the settings screen and re-checked automatically right after connecting.
+
+The strictness matters: when llms.txt falls through — switched off here, or no llms.txt for the project on CiteCue — the crawler proxy is next on `template_redirect` and can answer the same URL with `x-citecue: served`. Accepting any marker would read that as proof llms.txt works, which is what it disproves. With `Serve llms.txt` switched off the check reports that it could not run, rather than a failure the site did not have.
+
+By hand:
 
 ```bash
 curl -si -A GPTBot https://your-site.com/llms.txt        # expect: x-citecue: llms-txt
