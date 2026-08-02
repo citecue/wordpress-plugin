@@ -187,6 +187,9 @@ class Citecue_Http_Mock {
 	 * @return string
 	 */
 	private static function classify( $url ) {
+		if ( false !== strpos( $url, '/api/delivery/v2/connect/claim' ) ) {
+			return 'connect';
+		}
 		if ( false !== strpos( $url, '/api/delivery/v2/page' ) ) {
 			return 'page';
 		}
@@ -198,6 +201,11 @@ class Citecue_Http_Mock {
 		}
 		if ( false !== strpos( $url, '/api/delivery/v1/crawlers' ) ) {
 			return 'crawlers';
+		}
+		// The install check requests this very site, so a loopback is a
+		// distinct endpoint rather than an unexpected call.
+		if ( 0 === strpos( $url, home_url( '/' ) ) ) {
+			return 'loopback';
 		}
 		return 'other';
 	}

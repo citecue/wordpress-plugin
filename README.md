@@ -34,17 +34,53 @@ AI crawler (GPTBot, ClaudeBot, …)                Human visitor
 ## Setup
 
 1. Install and activate the plugin (upload this repo as a zip or drop it into `wp-content/plugins/`).
-2. In CiteCue, create an organization API key (Settings → API keys, `ck_live_…`).
-3. In WordPress, open **Settings → CiteCue**, paste the key, click **Test connection**. The project whose domain matches the site is selected automatically.
-4. Make sure delivery is enabled for the project on CiteCue's Auto-Fix page, and add/generate optimized pages there.
-5. Verify from a terminal:
+2. Open **Settings → CiteCue** and click **Connect to CiteCue**.
+3. Confirm the project for this site in CiteCue. You are redirected back, and the plugin checks itself.
+
+That is the whole setup. Nothing is copied or pasted in either direction: the handshake brings the API key and project back to WordPress, and hands CiteCue this site's address and content-push secret on the way through.
+
+Then add or generate optimized pages on CiteCue's Auto-Fix page.
+
+### How the handshake works
+
+```
+WordPress: [Connect to CiteCue]
+        │  browser redirect
+        ▼
+{app}/connect/wordpress?site=…&state=…&return=…&v=…
+        │  admin confirms the project; CiteCue mints a per-site key
+        ▼  redirect back to `return` with ?citecue_code=…&citecue_state=…
+WordPress verifies the state, then server-to-server:
+        POST {app}/api/delivery/v2/connect/claim
+             { code, site_url, rest_url, ingest_secret, plugin_version, woocommerce }
+          →  { apiKey, publicKey, domain, ingest }
+```
+
+- **`state`** is minted by the plugin, stored server-side, bound to the administrator who started the handshake, single-use and valid for 15 minutes. It is the CSRF defence on the return leg, which cannot carry a WordPress nonce because it originates at CiteCue.
+- **The code is bearer-grade** — whoever presents it receives an API key — so it is single-use, short-lived, and CiteCue binds it to the `site_url` presented at claim time.
+- **The ingest secret only ever travels in the claim body**, server-to-server, never through a browser redirect. That request does not follow redirects, so a redirect cannot replay it at another host.
+- **Ingest stays off unless CiteCue's connect screen says otherwise** (`ingest: true`). A response that omits the field never grants write access — silence is not consent.
+
+The full server-side contract is in [`docs/connect-handshake.md`](docs/connect-handshake.md).
+
+### Verifying
+
+**Settings → CiteCue → Verify installation** requests this site's own `/llms.txt` as GPTBot and checks for the plugin's marker header; the result is shown on the settings screen and re-checked automatically right after connecting. By hand:
 
 ```bash
 curl -si -A GPTBot https://your-site.com/llms.txt        # expect: x-citecue: llms-txt
 curl -si -A GPTBot https://your-site.com/optimized-page/ # expect: x-citecue: served
 ```
 
-Or click **Verify installation** in CiteCue.
+### Connecting with an API key instead
+
+An install that cannot bounce a browser through CiteCue — an intranet site, a locked-down staging host — can still connect the original way: **Connect with an API key instead** on the settings screen takes a `ck_live_…` organization key (CiteCue → Settings → API keys) and selects the project whose domain matches the site. CiteCue does not learn the ingest secret this way, so content pushes need it copied over from **Connection details → Shared secret**.
+
+To pin the CiteCue origin for a self-hosted deployment, define it in `wp-config.php` — the settings field then shows it read-only rather than inviting an edit:
+
+```php
+define( 'CITECUE_API_BASE', 'https://citecue.example.com' );
+```
 
 ## Content push API (create posts)
 
@@ -110,6 +146,7 @@ With WooCommerce active:
 
 | Endpoint | Auth | Used for |
 |---|---|---|
+| `POST /api/delivery/v2/connect/claim` | one-time code | Pairing handshake: code → this site's API key + project |
 | `GET /api/delivery/v2/config` | `Bearer ck_live_…` | Connection test + project auto-selection by domain |
 | `GET /api/delivery/v2/page?k&u&b` | `Bearer ck_live_…` + `X-Citecue-Channel: wordpress` | Optimized page for a crawler request (ETag/304; 404 = pass through; hit recorded server-side) |
 | `GET /api/delivery/v2/llms.txt?k` | `Bearer ck_live_…` | llms.txt body (ETag/304) |
@@ -119,6 +156,7 @@ With WooCommerce active:
 
 | Hook | Type | Purpose |
 |---|---|---|
+| `citecue_pinned_api_base` | filter | Fix the CiteCue app origin from code (defaults to the `CITECUE_API_BASE` constant); a non-empty value makes the settings field read-only |
 | `citecue_crawler_tokens` | filter | Add/remove AI-crawler UA tokens |
 | `citecue_matched_crawler` | filter | Override per-request crawler matching |
 | `citecue_should_serve` | filter | Veto serving for a specific request |

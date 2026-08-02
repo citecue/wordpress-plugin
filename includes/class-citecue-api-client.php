@@ -7,8 +7,10 @@
  *   GET /api/delivery/v2/config    — org projects (connection test / selection)
  *   GET /api/delivery/v2/page      — optimized page for an AI crawler (ETag/304)
  *   GET /api/delivery/v2/llms.txt  — llms.txt body (ETag/304)
- * and the public keyless registry feed:
+ * the public keyless registry feed:
  *   GET /api/delivery/v1/crawlers  — AI crawler UA token registry
+ * and the code-gated pairing exchange:
+ *   POST /api/delivery/v2/connect/claim — one-time code → this site's key
  *
  * The v2 page endpoint records the crawler hit server-side (served on
  * 200/304, passthrough on 404), so one request both serves and reports.
@@ -97,6 +99,99 @@ class Citecue_Api_Client {
 			'body'    => (string) wp_remote_retrieve_body( $response ),
 			'headers' => wp_remote_retrieve_headers( $response ),
 		);
+	}
+
+	/**
+	 * Performs a JSON POST and normalizes the response.
+	 *
+	 * @param string $url     Full URL.
+	 * @param array  $payload Body, JSON-encoded.
+	 * @param int    $timeout Timeout in seconds.
+	 * @return array|WP_Error {status:int, body:string}
+	 */
+	private function post_json( $url, array $payload, $timeout ) {
+		$response = wp_remote_post(
+			$url,
+			array(
+				'timeout'     => $timeout,
+				'redirection' => 0,
+				'user-agent'  => 'CiteCue-WordPress/' . CITECUE_VERSION . ' (+' . home_url( '/' ) . ')',
+				'headers'     => array(
+					'Content-Type'      => 'application/json',
+					'X-Citecue-Channel' => 'wordpress',
+				),
+				'body'        => wp_json_encode( $payload ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		return array(
+			'status' => (int) wp_remote_retrieve_response_code( $response ),
+			'body'   => (string) wp_remote_retrieve_body( $response ),
+		);
+	}
+
+	/**
+	 * POST /api/delivery/v2/connect/claim — spends a one-time connect code.
+	 *
+	 * Unauthenticated by design: the code *is* the credential, which is why it
+	 * is single-use, short-lived and bound server-side to the site URL sent
+	 * here. Redirection is disabled — a redirect would be a chance to replay
+	 * the ingest secret at somewhere other than the configured API base.
+	 *
+	 * @param string $code One-time code from the connect redirect.
+	 * @param array  $site {site_url, rest_url, ingest_secret, plugin_version, woocommerce}.
+	 * @return array|WP_Error {apiKey, publicKey, domain, ingest?}
+	 */
+	public function claim_connect_code( $code, array $site ) {
+		$result = $this->post_json(
+			$this->settings->api_base() . '/api/delivery/v2/connect/claim',
+			array_merge( array( 'code' => (string) $code ), $site ),
+			15
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$data = json_decode( $result['body'], true );
+		$data = is_array( $data ) ? $data : array();
+
+		if ( 200 !== $result['status'] ) {
+			$reasons  = array(
+				'invalid_code'  => __( 'That connection link is not valid. Start the connection again from WordPress.', 'citecue' ),
+				'code_used'     => __( 'That connection link has already been used. Start the connection again from WordPress.', 'citecue' ),
+				'code_expired'  => __( 'That connection link expired. Start the connection again from WordPress.', 'citecue' ),
+				'site_mismatch' => __( 'CiteCue issued that link for a different site address than this one.', 'citecue' ),
+			);
+			$code_key = isset( $data['error'] ) ? (string) $data['error'] : '';
+
+			if ( isset( $reasons[ $code_key ] ) ) {
+				return new WP_Error( 'citecue_connect_' . $code_key, $reasons[ $code_key ] );
+			}
+			/* translators: %d: HTTP status code. */
+			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue' ), $result['status'] ) );
+		}
+
+		if ( empty( $data['apiKey'] ) || empty( $data['publicKey'] ) ) {
+			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue' ) );
+		}
+
+		$connection = array(
+			'apiKey'    => sanitize_text_field( (string) $data['apiKey'] ),
+			'publicKey' => sanitize_text_field( (string) $data['publicKey'] ),
+			'domain'    => sanitize_text_field( (string) ( isset( $data['domain'] ) ? $data['domain'] : '' ) ),
+		);
+
+		// Absent, not false, when CiteCue says nothing about content pushes —
+		// the caller must be able to tell "denied" from "not mentioned".
+		if ( isset( $data['ingest'] ) ) {
+			$connection['ingest'] = (bool) $data['ingest'];
+		}
+
+		return $connection;
 	}
 
 	/**

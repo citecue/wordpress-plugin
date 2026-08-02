@@ -84,9 +84,39 @@ class Citecue_Settings {
 	 * @return void
 	 */
 	public function update( array $partial ) {
-		$merged = array_merge( $this->all(), $partial );
-		update_option( self::OPTION, $merged );
-		$this->values = $merged;
+		update_option( self::OPTION, array_merge( $this->all(), $partial ) );
+		// Drop the cache rather than assume what was written: register_setting()
+		// routes this through sanitize(), which may legitimately store
+		// something other than what was passed in (an empty api_key means
+		// "keep the stored one", not "erase it"). Re-reading is the only way to
+		// hold the value that actually landed.
+		$this->values = null;
+	}
+
+	/**
+	 * A CiteCue origin fixed by the install rather than by the settings form,
+	 * or '' when the stored value governs.
+	 *
+	 * Pointing a site at a different CiteCue deployment is a deployment
+	 * decision — a self-hosted app, a staging origin — not something an
+	 * administrator should be invited to get wrong while pasting a key. When
+	 * one is pinned, api_base() ignores the stored value and the settings
+	 * screen shows the origin read-only.
+	 *
+	 * @return string
+	 */
+	public function pinned_api_base() {
+		$pinned = defined( 'CITECUE_API_BASE' ) ? (string) CITECUE_API_BASE : '';
+
+		/**
+		 * Filters the pinned CiteCue app origin. Defaults to the
+		 * CITECUE_API_BASE constant; '' leaves the setting editable.
+		 *
+		 * @param string $pinned Pinned origin, or ''.
+		 */
+		$pinned = (string) apply_filters( 'citecue_pinned_api_base', $pinned );
+
+		return '' !== $pinned ? untrailingslashit( $pinned ) : '';
 	}
 
 	/**
@@ -95,8 +125,32 @@ class Citecue_Settings {
 	 * @return string
 	 */
 	public function api_base() {
+		$pinned = $this->pinned_api_base();
+		if ( '' !== $pinned ) {
+			return $pinned;
+		}
+
 		$base = untrailingslashit( (string) $this->get( 'api_base' ) );
 		return '' !== $base ? $base : self::DEFAULT_API_BASE;
+	}
+
+	/**
+	 * Whether the API base is fixed by the install, so the UI must not offer
+	 * to edit it.
+	 *
+	 * @return bool
+	 */
+	public function api_base_is_locked() {
+		return '' !== $this->pinned_api_base();
+	}
+
+	/**
+	 * Whether this site has been paired with a CiteCue project.
+	 *
+	 * @return bool
+	 */
+	public function is_connected() {
+		return '' !== (string) $this->get( 'api_key' );
 	}
 
 	/**
