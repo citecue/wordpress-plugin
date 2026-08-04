@@ -69,12 +69,39 @@ The full server-side contract is in [`docs/connect-handshake.md`](docs/connect-h
 
 The strictness matters: when llms.txt falls through — switched off here, or no llms.txt for the project on CiteCue — the crawler proxy is next on `template_redirect` and can answer the same URL with `x-citecue: served`. Accepting any marker would read that as proof llms.txt works, which is what it disproves. With `Serve llms.txt` switched off the check reports that it could not run, rather than a failure the site did not have.
 
-By hand:
+By hand. Replace the second URL with a page that exists on the site **and** has been generated on CiteCue's Auto-Fix page — there is no `/optimized-page/` route; the plugin only answers URLs CiteCue holds an optimized version of:
 
 ```bash
-curl -si -A GPTBot https://your-site.com/llms.txt        # expect: x-citecue: llms-txt
-curl -si -A GPTBot https://your-site.com/optimized-page/ # expect: x-citecue: served
+curl -si -A GPTBot https://your-site.com/llms.txt              | grep -i x-citecue
+curl -si -A GPTBot https://your-site.com/a-page-you-optimized/ | grep -i x-citecue
 ```
+
+| Response header | Means |
+|---|---|
+| `x-citecue: llms-txt` | Working — CiteCue's llms.txt was served. |
+| `x-citecue: served` | Working — the optimized page was served. |
+| `x-citecue-cache: stale` (alongside `served`) | Working, degraded — CiteCue is unreachable, so the cached body was served. |
+| *no `x-citecue` header at all* | Pass-through: the normal theme output. Not an error on its own — see below. |
+
+Test with `curl` or a logged-out browser. The proxy deliberately ignores logged-in users, so the tab you have wp-admin open in will always show the normal site.
+
+#### When nothing is served
+
+A pass-through means [`Citecue_Proxy::decide()`](includes/class-citecue-proxy.php) chose to leave the request to WordPress. In rough order of likelihood on a fresh install:
+
+- **CiteCue has no optimized page for that URL.** The common one — connecting does not generate anything. Add the page on CiteCue's Auto-Fix page first. A URL that 404s on the site behaves the same way.
+- **A miss for the same URL in the last 60 s.** Misses are negative-cached, so an immediate retry makes no API call at all. After generating a page, wait a minute before re-testing.
+- **`Serve optimized pages` is off**, or the site is not connected.
+- **The User-Agent is not a known crawler** — check the token list under **Tools → Refresh crawler list**.
+- **The circuit is open** after a timeout or a rejected API key. A rejected key raises an admin notice on the settings screen; a timeout backs off quietly for 60 s.
+
+**Settings → CiteCue → Recent AI crawler activity** narrows it down:
+
+- A **`passthrough`** row for the URL: the plugin ran, called CiteCue, and CiteCue reported no optimized page. Generate it.
+- An **`error`** row: the API call failed and the circuit is now open.
+- **No row at all** is ambiguous by design — nothing is recorded when the plugin declines *before* calling the API (negative-cached miss, open circuit, serving switched off, unrecognized UA), and equally when a full-page cache or CDN answered before WordPress ran.
+
+To tell a healthy connection from an open circuit, use **Tools → Flush delivery cache** and then immediately re-request `/llms.txt`. That endpoint answers from a 5-minute local cache — and keeps answering from it while the circuit is open — so only a flushed cache forces a live API call. Still `x-citecue: llms-txt` afterwards means delivery is genuinely healthy and any pass-through is about that URL, not the connection.
 
 ### Connecting with an API key instead
 
@@ -229,10 +256,12 @@ CI runs the static checks plus the suite on PHP 7.4/8.2/8.4 against current Word
 ### Testing an install by hand
 
 ```bash
-curl -si -A GPTBot https://your-site.com/llms.txt        # expect: x-citecue: llms-txt
-curl -si -A GPTBot https://your-site.com/optimized-page/ # expect: x-citecue: served
-curl -s https://your-site.com/wp-json/citecue/v1/health  # plugin/version/delivery/ingest/woocommerce
+curl -si -A GPTBot https://your-site.com/llms.txt              # expect: x-citecue: llms-txt
+curl -si -A GPTBot https://your-site.com/a-page-you-optimized/ # expect: x-citecue: served
+curl -s https://your-site.com/wp-json/citecue/v1/health        # plugin/version/delivery/ingest/woocommerce
 ```
+
+The second URL must be one CiteCue holds an optimized version of; anything else is a pass-through with no `x-citecue` header. [Verifying](#verifying) covers how to read that.
 
 ### Structure notes
 
