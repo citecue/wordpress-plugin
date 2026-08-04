@@ -102,6 +102,7 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 * @return void
 	 */
 	public function test_the_daily_sync_refreshes_the_crawler_registry() {
+		$this->configure_delivery();
 		$this->http->queue(
 			'crawlers',
 			200,
@@ -124,11 +125,26 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 * @return void
 	 */
 	public function test_the_daily_sync_survives_an_outage() {
+		$this->configure_delivery();
 		$this->http->queue_error( 'crawlers' );
 
 		$this->plugin->daily_sync();
 
 		$this->assertSame( 'GPTBot', $this->plugin->crawlers->match( 'GPTBot/1.2' ) );
+	}
+
+	/**
+	 * Activating a plugin is not consent to talk to a third party. Until the
+	 * site has connected itself, the cron must reach nothing — the HTTP mock
+	 * throws on any unqueued call, so an outbound request fails this test.
+	 *
+	 * @return void
+	 */
+	public function test_the_daily_sync_is_silent_until_the_site_connects() {
+		$this->plugin->daily_sync();
+
+		$this->assertSame( 0, $this->http->count() );
+		$this->assertSame( Citecue_Crawlers::bundled_tokens(), $this->plugin->crawlers->get_tokens() );
 	}
 
 	/**
