@@ -191,7 +191,7 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 */
 	private function run_uninstall() {
 		if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
-			define( 'WP_UNINSTALL_PLUGIN', 'citecue/citecue.php' );
+			define( 'WP_UNINSTALL_PLUGIN', 'citecue-ai-auto-fix/citecue.php' );
 		}
 
 		require dirname( __DIR__, 2 ) . '/uninstall.php';

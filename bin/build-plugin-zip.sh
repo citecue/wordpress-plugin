@@ -14,11 +14,18 @@
 # in .gitattributes, so an untracked vendor/, .env or editor backup can never
 # be swept into a release.
 #
+# SLUG must stay equal to the WordPress.org slug. WordPress.org derives that
+# from the Plugin Name header and will not change it after approval, and it is
+# what the directory installs into. If this zip used a different name, a site
+# that installed from GitHub and later switched to the directory (or the
+# reverse) would end up running two copies of the plugin from two directories
+# rather than upgrading one.
+#
 # Usage: bin/build-plugin-zip.sh [ref]      (ref defaults to HEAD)
 
 set -euo pipefail
 
-SLUG=citecue
+SLUG=citecue-ai-auto-fix
 REF=${1:-HEAD}
 
 ROOT=$(git rev-parse --show-toplevel)
