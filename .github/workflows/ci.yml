@@ -29,6 +29,22 @@ jobs:
       - name: WordPress coding standards
         run: composer run phpcs
 
+  package:
+    name: Plugin zip
+    runs-on: ubuntu-latest
+    steps:
+      # The build reads .gitattributes and the version headers out of the
+      # commit itself, so it needs real history rather than a snapshot.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The same script the release workflow runs. It fails on a mismatched
+      # version, a stray development file or a wrong top-level directory, so
+      # packaging breaks in a pull request rather than at release time.
+      - name: Build the plugin zip
+        run: bin/build-plugin-zip.sh "$GITHUB_SHA"
+
   test:
     name: PHP ${{ matrix.php }} / WP ${{ matrix.wp }}
     runs-on: ubuntu-latest

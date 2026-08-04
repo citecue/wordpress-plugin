@@ -33,7 +33,7 @@ AI crawler (GPTBot, ClaudeBot, …)                Human visitor
 
 ## Setup
 
-1. Install and activate the plugin (upload this repo as a zip or drop it into `wp-content/plugins/`).
+1. Download `citecue.zip` from the [latest release](https://github.com/citecue/wordpress-plugin/releases/latest), then install it under **Plugins → Add New → Upload Plugin** and activate it.
 2. Open **Settings → CiteCue** and click **Connect to CiteCue**.
 3. Confirm the project for this site in CiteCue. You are redirected back, and the plugin checks itself.
 
@@ -195,6 +195,18 @@ The worst case for an AI crawler is one 3 s wait per minute. For a human visitor
 ## Development
 
 Plain PHP ≥ 7.4, no build step. Repo root is the plugin root, so the checkout can be symlinked straight into `wp-content/plugins/`.
+
+### Releasing
+
+GitHub's **Download ZIP** button is not an install path: it produces `wordpress-plugin-main.zip`, which unpacks to `wordpress-plugin-main/` and carries the tests and Composer files with it. WordPress keys a plugin by its directory name, so installs have to come from the release asset instead.
+
+```bash
+bin/build-plugin-zip.sh          # writes dist/citecue.zip from HEAD
+```
+
+The script archives tracked files only, honouring the `export-ignore` rules in `.gitattributes`, so nothing untracked (a `vendor/`, a stray `.env`) can be swept in. It refuses to build unless `citecue.php`'s `Version:` header, `CITECUE_VERSION` and `readme.txt`'s `Stable tag:` all agree, and it checks the result unpacks to a single `citecue/` directory. CI runs the same script on every pull request.
+
+To publish: bump those three version strings, then push a `vX.Y.Z` tag. The release workflow rebuilds the zip, fails if the tag disagrees with the plugin header, and attaches `citecue.zip` to the GitHub release.
 
 ### Tests
 
