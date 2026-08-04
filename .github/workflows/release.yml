@@ -1,0 +1,62 @@
+name: Release
+
+# Publishes citecue.zip — an archive that unpacks to citecue/ and contains only
+# the runtime files — as a release asset, so that installing the plugin is
+# "Plugins → Add New → Upload" rather than "download the source, rename the
+# folder, delete the tests".
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build and publish the plugin zip
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      # The build reads .gitattributes and the version strings out of the ref
+      # itself, so it needs the tag object, not just a shallow snapshot.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build the plugin zip
+        run: bin/build-plugin-zip.sh "$GITHUB_SHA"
+
+      # A tag that disagrees with the plugin header would ship an update
+      # WordPress cannot reason about; catch it before the asset is public.
+      - name: Check the tag matches the plugin version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          header=$(sed -n 's/^[[:space:]]*\*[[:space:]]*Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' citecue.php | head -n 1)
+          if [ "$tag" != "$header" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match plugin version $header"
+            exit 1
+          fi
+
+      - name: Upload the zip as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: citecue-plugin-zip
+          path: dist/citecue.zip
+          if-no-files-found: error
+
+      - name: Attach the zip to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/citecue.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/citecue.zip \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi

@@ -23,7 +23,7 @@ Requires a CiteCue account.
 
 == Installation ==
 
-1. Upload the plugin to `/wp-content/plugins/` and activate it.
+1. In WordPress, go to Plugins → Add New → Upload Plugin, choose `citecue.zip` and activate it.
 2. Go to Settings → CiteCue and click "Connect to CiteCue".
 3. Confirm the project for this site in CiteCue. You are redirected back and the plugin checks itself.
 4. Add and generate optimized pages on CiteCue's Auto-Fix page.
