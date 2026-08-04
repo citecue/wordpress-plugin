@@ -40,6 +40,18 @@ No. Clicking "Connect to CiteCue" issues a key for this site and stores it for y
 
 Settings → CiteCue → "Verify installation" requests your own llms.txt as an AI crawler and confirms the plugin answered. It runs automatically right after you connect. The usual cause of a failure is a full-page cache or CDN answering before WordPress loads.
 
+To check a page by hand, request one you have optimized on CiteCue's Auto-Fix page and look for the "x-citecue: served" header:
+
+`curl -si -A GPTBot https://your-site.com/a-page-you-optimized/ | grep -i x-citecue`
+
+Use curl or a logged-out browser — logged-in users always get the normal site.
+
+= My llms.txt works, but pages are not being served. Why? =
+
+Almost always because CiteCue has no optimized version of that URL yet. Connecting sets up delivery; it does not generate pages. Add and generate them on CiteCue's Auto-Fix page, then re-test — waiting a minute first, because a miss is remembered for 60 seconds and an immediate retry will not call CiteCue at all.
+
+Settings → CiteCue → "Recent AI crawler activity" tells you which it is. A "passthrough" row for the URL means the plugin ran and CiteCue reported no optimized page. An "error" row means the call to CiteCue failed. No row at all can mean either that the plugin declined before calling CiteCue (a recent miss, a backed-off connection, serving switched off) or that a full-page cache or CDN answered before WordPress ran.
+
 = Will human visitors ever see the optimized version? =
 
 No. Only requests whose User-Agent matches the AI-crawler registry are served optimized content, and those responses are never cached for regular traffic.
