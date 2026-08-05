@@ -63,8 +63,8 @@ class Citecue_Admin {
 	 */
 	public function add_menu() {
 		add_options_page(
-			__( 'CiteCue AI Auto-Fix', 'citecue' ),
-			__( 'CiteCue', 'citecue' ),
+			__( 'CiteCue AI Auto-Fix', 'citecue-ai-auto-fix' ),
+			__( 'CiteCue', 'citecue-ai-auto-fix' ),
 			'manage_options',
 			'citecue',
 			array( $this, 'render_page' )
@@ -94,7 +94,7 @@ class Citecue_Admin {
 	 * @return array
 	 */
 	public function action_links( $links ) {
-		array_unshift( $links, '<a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Settings', 'citecue' ) . '</a>' );
+		array_unshift( $links, '<a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Settings', 'citecue-ai-auto-fix' ) . '</a>' );
 		return $links;
 	}
 
@@ -129,9 +129,9 @@ class Citecue_Admin {
 		}
 
 		if ( get_option( 'citecue_auth_failed' ) ) {
-			echo '<div class="notice notice-error"><p><strong>' . esc_html__( 'CiteCue:', 'citecue' ) . '</strong> '
-				. esc_html__( 'the API key was rejected, so optimized pages are not being served to AI crawlers. Update the key in the CiteCue settings.', 'citecue' )
-				. ' <a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Open settings', 'citecue' ) . '</a></p></div>';
+			echo '<div class="notice notice-error"><p><strong>' . esc_html__( 'CiteCue:', 'citecue-ai-auto-fix' ) . '</strong> '
+				. esc_html__( 'the API key was rejected, so optimized pages are not being served to AI crawlers. Update the key in the CiteCue settings.', 'citecue-ai-auto-fix' )
+				. ' <a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Open settings', 'citecue-ai-auto-fix' ) . '</a></p></div>';
 		}
 
 		if ( ! isset( $_GET['citecue_msg'] ) || ! isset( $_GET['page'] ) || 'citecue' !== $_GET['page'] ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only feedback.
@@ -139,21 +139,21 @@ class Citecue_Admin {
 		}
 
 		$messages = array(
-			'connected'     => array( 'success', __( 'Connected to CiteCue.', 'citecue' ) ),
-			'auto_selected' => array( 'success', __( 'Connected to CiteCue — the project matching this site was selected automatically.', 'citecue' ) ),
-			'paired'        => array( 'success', __( 'Connected. CiteCue now knows this site’s address and can serve optimized pages to AI crawlers.', 'citecue' ) ),
-			'pair_state'    => array( 'error', __( 'That connection link did not match this WordPress session, so it was not used. Start the connection again.', 'citecue' ) ),
-			'pair_fail'     => array( 'error', __( 'The connection could not be completed.', 'citecue' ) ),
-			'disconnected'  => array( 'success', __( 'Disconnected from CiteCue. Optimized pages are no longer served.', 'citecue' ) ),
-			'verified'      => array( 'success', __( 'Verified — this site answers AI crawlers with CiteCue’s llms.txt.', 'citecue' ) ),
-			'verify_fail'   => array( 'warning', __( 'Verification failed. See the details below.', 'citecue' ) ),
-			'verify_skip'   => array( 'info', __( 'The check could not run. See the details below.', 'citecue' ) ),
-			'auth'          => array( 'error', __( 'CiteCue rejected the API key.', 'citecue' ) ),
-			'conn_fail'     => array( 'error', __( 'Could not reach CiteCue. Check your connection and try again.', 'citecue' ) ),
-			'crawlers_ok'   => array( 'success', __( 'Crawler registry refreshed.', 'citecue' ) ),
-			'crawlers_fail' => array( 'warning', __( 'Could not refresh the crawler registry; the current list stays active.', 'citecue' ) ),
-			'flushed'       => array( 'success', __( 'Delivery cache flushed.', 'citecue' ) ),
-			'secret'        => array( 'success', __( 'New ingest secret generated. Update it anywhere the old secret was used.', 'citecue' ) ),
+			'connected'     => array( 'success', __( 'Connected to CiteCue.', 'citecue-ai-auto-fix' ) ),
+			'auto_selected' => array( 'success', __( 'Connected to CiteCue — the project matching this site was selected automatically.', 'citecue-ai-auto-fix' ) ),
+			'paired'        => array( 'success', __( 'Connected. CiteCue now knows this site’s address and can serve optimized pages to AI crawlers.', 'citecue-ai-auto-fix' ) ),
+			'pair_state'    => array( 'error', __( 'That connection link did not match this WordPress session, so it was not used. Start the connection again.', 'citecue-ai-auto-fix' ) ),
+			'pair_fail'     => array( 'error', __( 'The connection could not be completed.', 'citecue-ai-auto-fix' ) ),
+			'disconnected'  => array( 'success', __( 'Disconnected from CiteCue. Optimized pages are no longer served.', 'citecue-ai-auto-fix' ) ),
+			'verified'      => array( 'success', __( 'Verified — this site answers AI crawlers with CiteCue’s llms.txt.', 'citecue-ai-auto-fix' ) ),
+			'verify_fail'   => array( 'warning', __( 'Verification failed. See the details below.', 'citecue-ai-auto-fix' ) ),
+			'verify_skip'   => array( 'info', __( 'The check could not run. See the details below.', 'citecue-ai-auto-fix' ) ),
+			'auth'          => array( 'error', __( 'CiteCue rejected the API key.', 'citecue-ai-auto-fix' ) ),
+			'conn_fail'     => array( 'error', __( 'Could not reach CiteCue. Check your connection and try again.', 'citecue-ai-auto-fix' ) ),
+			'crawlers_ok'   => array( 'success', __( 'Crawler registry refreshed.', 'citecue-ai-auto-fix' ) ),
+			'crawlers_fail' => array( 'warning', __( 'Could not refresh the crawler registry; the current list stays active.', 'citecue-ai-auto-fix' ) ),
+			'flushed'       => array( 'success', __( 'Delivery cache flushed.', 'citecue-ai-auto-fix' ) ),
+			'secret'        => array( 'success', __( 'New ingest secret generated. Update it anywhere the old secret was used.', 'citecue-ai-auto-fix' ) ),
 		);
 
 		$code = sanitize_key( wp_unslash( $_GET['citecue_msg'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -220,7 +220,7 @@ class Citecue_Admin {
 	 */
 	public function handle_connect_start() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_connect_start' );
 
@@ -237,7 +237,7 @@ class Citecue_Admin {
 	 */
 	public function handle_disconnect() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_disconnect' );
 
@@ -252,7 +252,7 @@ class Citecue_Admin {
 	 */
 	public function handle_verify_install() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_verify_install' );
 
@@ -273,7 +273,7 @@ class Citecue_Admin {
 	 */
 	public function handle_test_connection() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_test_connection', 'citecue_test_nonce' );
 
@@ -339,7 +339,7 @@ class Citecue_Admin {
 	 */
 	public function handle_refresh_crawlers() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_refresh_crawlers' );
 
@@ -354,7 +354,7 @@ class Citecue_Admin {
 	 */
 	public function handle_flush_cache() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_flush_cache' );
 
@@ -369,7 +369,7 @@ class Citecue_Admin {
 	 */
 	public function handle_regen_secret() {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue' ) );
+			wp_die( esc_html__( 'You are not allowed to do that.', 'citecue-ai-auto-fix' ) );
 		}
 		check_admin_referer( 'citecue_regen_secret' );
 
@@ -388,7 +388,7 @@ class Citecue_Admin {
 		}
 		?>
 		<div class="wrap">
-			<h1><?php esc_html_e( 'CiteCue AI Auto-Fix', 'citecue' ); ?></h1>
+			<h1><?php esc_html_e( 'CiteCue AI Auto-Fix', 'citecue-ai-auto-fix' ); ?></h1>
 			<?php
 			if ( $this->plugin->settings->is_connected() ) {
 				$this->render_connected();
@@ -413,16 +413,16 @@ class Citecue_Admin {
 		$host     = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
 		?>
 		<p style="max-width:720px;">
-			<?php esc_html_e( 'Serves CiteCue-optimized versions of your pages to AI bots and crawlers, publishes your llms.txt, and can receive new brand-building content from CiteCue as draft posts.', 'citecue' ); ?>
+			<?php esc_html_e( 'Serves CiteCue-optimized versions of your pages to AI bots and crawlers, publishes your llms.txt, and can receive new brand-building content from CiteCue as draft posts.', 'citecue-ai-auto-fix' ); ?>
 		</p>
 
 		<div class="card" style="max-width:720px;">
-			<h2 style="margin-top:0;"><?php esc_html_e( 'Connect this site to CiteCue', 'citecue' ); ?></h2>
+			<h2 style="margin-top:0;"><?php esc_html_e( 'Connect this site to CiteCue', 'citecue-ai-auto-fix' ); ?></h2>
 			<p>
 				<?php
 				printf(
 					/* translators: %s: this site's host name. */
-					esc_html__( 'You will be sent to CiteCue to confirm which project covers %s, then returned here. There is nothing to copy or paste — the API key and the content-push secret are exchanged for you.', 'citecue' ),
+					esc_html__( 'You will be sent to CiteCue to confirm which project covers %s, then returned here. There is nothing to copy or paste — the API key and the content-push secret are exchanged for you.', 'citecue-ai-auto-fix' ),
 					'<strong>' . esc_html( $host ) . '</strong>'
 				);
 				?>
@@ -430,12 +430,12 @@ class Citecue_Admin {
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="citecue_connect_start" />
 				<?php wp_nonce_field( 'citecue_connect_start' ); ?>
-				<?php submit_button( __( 'Connect to CiteCue', 'citecue' ), 'primary', 'submit', false ); ?>
+				<?php submit_button( __( 'Connect to CiteCue', 'citecue-ai-auto-fix' ), 'primary', 'submit', false ); ?>
 			</form>
 		</div>
 
 		<details style="margin-top:20px;max-width:720px;">
-			<summary style="cursor:pointer;"><?php esc_html_e( 'Connect with an API key instead', 'citecue' ); ?></summary>
+			<summary style="cursor:pointer;"><?php esc_html_e( 'Connect with an API key instead', 'citecue-ai-auto-fix' ); ?></summary>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php?action=citecue_test_connection' ) ); ?>">
 				<?php
 				wp_nonce_field( 'citecue_test_connection', 'citecue_test_nonce' );
@@ -447,15 +447,15 @@ class Citecue_Admin {
 				?>
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue' ); ?></label></th>
+						<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue-ai-auto-fix' ); ?></label></th>
 						<td>
 							<input type="password" id="citecue_api_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key]" value="" class="regular-text" autocomplete="off" placeholder="ck_live_…" />
-							<p class="description"><?php esc_html_e( 'Create an organization API key in CiteCue under Settings → API keys. The project matching this site’s domain is selected automatically.', 'citecue' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Create an organization API key in CiteCue under Settings → API keys. The project matching this site’s domain is selected automatically.', 'citecue-ai-auto-fix' ); ?></p>
 						</td>
 					</tr>
 					<?php $this->render_api_base_row( $settings ); ?>
 				</table>
-				<?php submit_button( __( 'Save & test connection', 'citecue' ), 'secondary' ); ?>
+				<?php submit_button( __( 'Save & test connection', 'citecue-ai-auto-fix' ), 'secondary' ); ?>
 			</form>
 		</details>
 		<?php
@@ -481,29 +481,29 @@ class Citecue_Admin {
 			<form method="post" action="options.php">
 				<?php settings_fields( 'citecue' ); ?>
 
-				<h2><?php esc_html_e( 'Delivery to AI crawlers', 'citecue' ); ?></h2>
+				<h2><?php esc_html_e( 'Delivery to AI crawlers', 'citecue-ai-auto-fix' ); ?></h2>
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Serve optimized pages', 'citecue' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Serve optimized pages', 'citecue-ai-auto-fix' ); ?></th>
 						<td>
 							<label>
 								<input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[serve_enabled]" value="1" <?php checked( (bool) $settings->get( 'serve_enabled' ) ); ?> />
-								<?php esc_html_e( 'When an AI bot or crawler requests a page, serve the CiteCue-optimized version instead. Human visitors always see your normal site.', 'citecue' ); ?>
+								<?php esc_html_e( 'When an AI bot or crawler requests a page, serve the CiteCue-optimized version instead. Human visitors always see your normal site.', 'citecue-ai-auto-fix' ); ?>
 							</label>
 							<?php if ( class_exists( 'WooCommerce' ) ) : ?>
-								<p class="description"><?php esc_html_e( 'WooCommerce detected: cart, checkout, account pages and cart-modifying links are never intercepted. Product and shop pages are served normally.', 'citecue' ); ?></p>
+								<p class="description"><?php esc_html_e( 'WooCommerce detected: cart, checkout, account pages and cart-modifying links are never intercepted. Product and shop pages are served normally.', 'citecue-ai-auto-fix' ); ?></p>
 							<?php endif; ?>
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Serve llms.txt', 'citecue' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Serve llms.txt', 'citecue-ai-auto-fix' ); ?></th>
 						<td>
 							<label>
 								<input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[llms_txt_enabled]" value="1" <?php checked( (bool) $settings->get( 'llms_txt_enabled' ) ); ?> />
 								<?php
 								printf(
 									/* translators: %s: llms.txt URL. */
-									esc_html__( 'Publish your CiteCue llms.txt at %s.', 'citecue' ),
+									esc_html__( 'Publish your CiteCue llms.txt at %s.', 'citecue-ai-auto-fix' ),
 									'<code>' . esc_html( home_url( '/llms.txt' ) ) . '</code>'
 								);
 								?>
@@ -512,54 +512,54 @@ class Citecue_Admin {
 					</tr>
 				</table>
 
-				<h2><?php esc_html_e( 'Content from CiteCue', 'citecue' ); ?></h2>
+				<h2><?php esc_html_e( 'Content from CiteCue', 'citecue-ai-auto-fix' ); ?></h2>
 				<p class="description" style="max-width:720px;">
-					<?php esc_html_e( 'CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into this site through a signed endpoint. Pushed content is created as a draft by default so nothing goes live without review.', 'citecue' ); ?>
+					<?php esc_html_e( 'CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into this site through a signed endpoint. Pushed content is created as a draft by default so nothing goes live without review.', 'citecue-ai-auto-fix' ); ?>
 				</p>
 				<table class="form-table" role="presentation">
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Accept pushed content', 'citecue' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Accept pushed content', 'citecue-ai-auto-fix' ); ?></th>
 						<td>
 							<label>
 								<input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[ingest_enabled]" value="1" <?php checked( (bool) $settings->get( 'ingest_enabled' ) ); ?> />
-								<?php esc_html_e( 'Enable the signed content endpoint.', 'citecue' ); ?>
+								<?php esc_html_e( 'Enable the signed content endpoint.', 'citecue-ai-auto-fix' ); ?>
 							</label>
 							<p class="description"><code><?php echo esc_html( rest_url( 'citecue/v1/content' ) ); ?></code></p>
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="citecue_ingest_status"><?php esc_html_e( 'Maximum status', 'citecue' ); ?></label></th>
+						<th scope="row"><label for="citecue_ingest_status"><?php esc_html_e( 'Maximum status', 'citecue-ai-auto-fix' ); ?></label></th>
 						<td>
 							<select id="citecue_ingest_status" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[ingest_post_status]">
 								<?php
 								$status_labels = array(
-									'draft'   => __( 'Draft (recommended — review before publishing)', 'citecue' ),
-									'pending' => __( 'Pending review', 'citecue' ),
-									'publish' => __( 'Published (auto-publish)', 'citecue' ),
+									'draft'   => __( 'Draft (recommended — review before publishing)', 'citecue-ai-auto-fix' ),
+									'pending' => __( 'Pending review', 'citecue-ai-auto-fix' ),
+									'publish' => __( 'Published (auto-publish)', 'citecue-ai-auto-fix' ),
 								);
 								foreach ( $status_labels as $value => $label ) :
 									?>
 									<option value="<?php echo esc_attr( $value ); ?>" <?php selected( (string) $settings->get( 'ingest_post_status' ), $value ); ?>><?php echo esc_html( $label ); ?></option>
 								<?php endforeach; ?>
 							</select>
-							<p class="description"><?php esc_html_e( 'Pushed content is never made more visible than this.', 'citecue' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Pushed content is never made more visible than this.', 'citecue-ai-auto-fix' ); ?></p>
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="citecue_ingest_type"><?php esc_html_e( 'Default content type', 'citecue' ); ?></label></th>
+						<th scope="row"><label for="citecue_ingest_type"><?php esc_html_e( 'Default content type', 'citecue-ai-auto-fix' ); ?></label></th>
 						<td>
 							<select id="citecue_ingest_type" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[ingest_post_type]">
-								<option value="post" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'post' ); ?>><?php esc_html_e( 'Post', 'citecue' ); ?></option>
-								<option value="page" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'page' ); ?>><?php esc_html_e( 'Page', 'citecue' ); ?></option>
+								<option value="post" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'post' ); ?>><?php esc_html_e( 'Post', 'citecue-ai-auto-fix' ); ?></option>
+								<option value="page" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'page' ); ?>><?php esc_html_e( 'Page', 'citecue-ai-auto-fix' ); ?></option>
 								<?php if ( class_exists( 'WooCommerce' ) ) : ?>
-									<option value="product" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'product' ); ?>><?php esc_html_e( 'Product (WooCommerce)', 'citecue' ); ?></option>
+									<option value="product" <?php selected( (string) $settings->get( 'ingest_post_type' ), 'product' ); ?>><?php esc_html_e( 'Product (WooCommerce)', 'citecue-ai-auto-fix' ); ?></option>
 								<?php endif; ?>
 							</select>
-							<p class="description"><?php esc_html_e( 'Used when a push does not specify a type; each push may override it.', 'citecue' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Used when a push does not specify a type; each push may override it.', 'citecue-ai-auto-fix' ); ?></p>
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="citecue_ingest_author"><?php esc_html_e( 'Author for pushed content', 'citecue' ); ?></label></th>
+						<th scope="row"><label for="citecue_ingest_author"><?php esc_html_e( 'Author for pushed content', 'citecue-ai-auto-fix' ); ?></label></th>
 						<td>
 							<?php
 							wp_dropdown_users(
@@ -567,7 +567,7 @@ class Citecue_Admin {
 									'name'              => esc_attr( Citecue_Settings::OPTION ) . '[ingest_author]',
 									'id'                => 'citecue_ingest_author',
 									'selected'          => (int) $settings->get( 'ingest_author' ),
-									'show_option_none'  => __( '— First administrator —', 'citecue' ),
+									'show_option_none'  => __( '— First administrator —', 'citecue-ai-auto-fix' ),
 									'option_none_value' => 0,
 								)
 							);
@@ -575,27 +575,27 @@ class Citecue_Admin {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Shared secret', 'citecue' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Shared secret', 'citecue-ai-auto-fix' ); ?></th>
 						<td>
 							<details>
-								<summary style="cursor:pointer;"><?php esc_html_e( 'Show the signing secret', 'citecue' ); ?></summary>
+								<summary style="cursor:pointer;"><?php esc_html_e( 'Show the signing secret', 'citecue-ai-auto-fix' ); ?></summary>
 								<p><code style="user-select:all;"><?php echo esc_html( $secret ); ?></code></p>
 							</details>
-							<p class="description"><?php esc_html_e( 'CiteCue already holds this secret — connecting handed it over. You only need it to sign pushes from your own automation; the README documents the HMAC-SHA256 scheme.', 'citecue' ); ?></p>
+							<p class="description"><?php esc_html_e( 'CiteCue already holds this secret — connecting handed it over. You only need it to sign pushes from your own automation; the README documents the HMAC-SHA256 scheme.', 'citecue-ai-auto-fix' ); ?></p>
 						</td>
 					</tr>
 				</table>
 
-				<?php submit_button( __( 'Save changes', 'citecue' ) ); ?>
+				<?php submit_button( __( 'Save changes', 'citecue-ai-auto-fix' ) ); ?>
 
 				<details style="max-width:720px;">
-					<summary style="cursor:pointer;"><?php esc_html_e( 'Connection details', 'citecue' ); ?></summary>
+					<summary style="cursor:pointer;"><?php esc_html_e( 'Connection details', 'citecue-ai-auto-fix' ); ?></summary>
 					<table class="form-table" role="presentation">
 						<tr>
-							<th scope="row"><label for="citecue_public_key"><?php esc_html_e( 'Project', 'citecue' ); ?></label></th>
+							<th scope="row"><label for="citecue_public_key"><?php esc_html_e( 'Project', 'citecue-ai-auto-fix' ); ?></label></th>
 							<td>
 								<select id="citecue_public_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[public_key]">
-									<option value=""><?php esc_html_e( '— Not selected —', 'citecue' ); ?></option>
+									<option value=""><?php esc_html_e( '— Not selected —', 'citecue-ai-auto-fix' ); ?></option>
 									<?php
 									$current_key   = (string) $settings->get( 'public_key' );
 									$current_found = false;
@@ -606,7 +606,7 @@ class Citecue_Admin {
 										?>
 										<option value="<?php echo esc_attr( $project['publicKey'] ); ?>" <?php selected( $current_key, $project['publicKey'] ); ?>>
 											<?php echo esc_html( $project['domain'] ); ?>
-											<?php echo $project['enabled'] ? '' : esc_html__( '(delivery disabled in CiteCue)', 'citecue' ); ?>
+											<?php echo $project['enabled'] ? '' : esc_html__( '(delivery disabled in CiteCue)', 'citecue-ai-auto-fix' ); ?>
 										</option>
 									<?php endforeach; ?>
 									<?php if ( '' !== $current_key && ! $current_found ) : ?>
@@ -615,15 +615,15 @@ class Citecue_Admin {
 										</option>
 									<?php endif; ?>
 								</select>
-								<p class="description"><?php esc_html_e( 'Chosen when you connected. Change it only to point this site at a different CiteCue project.', 'citecue' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Chosen when you connected. Change it only to point this site at a different CiteCue project.', 'citecue-ai-auto-fix' ); ?></p>
 							</td>
 						</tr>
 						<tr>
-							<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue' ); ?></label></th>
+							<th scope="row"><label for="citecue_api_key"><?php esc_html_e( 'API key', 'citecue-ai-auto-fix' ); ?></label></th>
 							<td>
-								<input type="password" id="citecue_api_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key]" value="" class="regular-text" autocomplete="off" placeholder="<?php esc_attr_e( 'Saved — leave blank to keep', 'citecue' ); ?>" />
-								<label style="margin-left:8px;"><input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key_clear]" value="1" /> <?php esc_html_e( 'Clear stored key', 'citecue' ); ?></label>
-								<p class="description"><?php esc_html_e( 'Only needed to replace a revoked key without reconnecting.', 'citecue' ); ?></p>
+								<input type="password" id="citecue_api_key" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key]" value="" class="regular-text" autocomplete="off" placeholder="<?php esc_attr_e( 'Saved — leave blank to keep', 'citecue-ai-auto-fix' ); ?>" />
+								<label style="margin-left:8px;"><input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_key_clear]" value="1" /> <?php esc_html_e( 'Clear stored key', 'citecue-ai-auto-fix' ); ?></label>
+								<p class="description"><?php esc_html_e( 'Only needed to replace a revoked key without reconnecting.', 'citecue-ai-auto-fix' ); ?></p>
 							</td>
 						</tr>
 						<?php $this->render_api_base_row( $settings ); ?>
@@ -635,42 +635,42 @@ class Citecue_Admin {
 					wp_nonce_field( 'citecue_test_connection', 'citecue_test_nonce' );
 					?>
 					<button type="submit" class="button" formmethod="post" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=citecue_test_connection' ) ); ?>">
-						<?php esc_html_e( 'Save & test connection', 'citecue' ); ?>
+						<?php esc_html_e( 'Save & test connection', 'citecue-ai-auto-fix' ); ?>
 					</button>
 				</details>
 			</form>
 
 			<hr />
 
-			<h2><?php esc_html_e( 'Tools', 'citecue' ); ?></h2>
+			<h2><?php esc_html_e( 'Tools', 'citecue-ai-auto-fix' ); ?></h2>
 			<p>
-				<?php $this->action_button( 'citecue_refresh_crawlers', __( 'Refresh crawler list', 'citecue' ) ); ?>
-				<?php $this->action_button( 'citecue_flush_cache', __( 'Flush delivery cache', 'citecue' ) ); ?>
-				<?php $this->action_button( 'citecue_regen_secret', __( 'Regenerate ingest secret', 'citecue' ) ); ?>
+				<?php $this->action_button( 'citecue_refresh_crawlers', __( 'Refresh crawler list', 'citecue-ai-auto-fix' ) ); ?>
+				<?php $this->action_button( 'citecue_flush_cache', __( 'Flush delivery cache', 'citecue-ai-auto-fix' ) ); ?>
+				<?php $this->action_button( 'citecue_regen_secret', __( 'Regenerate ingest secret', 'citecue-ai-auto-fix' ) ); ?>
 			</p>
 			<p class="description">
 				<?php
 				printf(
 					/* translators: 1: crawler count, 2: registry version. */
-					esc_html__( 'Crawler registry: %1$d user-agent tokens (version %2$d)', 'citecue' ),
+					esc_html__( 'Crawler registry: %1$d user-agent tokens (version %2$d)', 'citecue-ai-auto-fix' ),
 					(int) $registry['count'],
 					(int) $registry['version']
 				);
 				if ( $registry['fetched_at'] > 0 ) {
 					printf(
 						/* translators: %s: human time diff. */
-						', ' . esc_html__( 'refreshed %s ago', 'citecue' ),
+						', ' . esc_html__( 'refreshed %s ago', 'citecue-ai-auto-fix' ),
 						esc_html( human_time_diff( $registry['fetched_at'] ) )
 					);
 				} else {
-					echo ', ' . esc_html__( 'bundled list (not refreshed yet)', 'citecue' );
+					echo ', ' . esc_html__( 'bundled list (not refreshed yet)', 'citecue-ai-auto-fix' );
 				}
 				?>
 			</p>
 
-			<h2><?php esc_html_e( 'Recent AI crawler activity', 'citecue' ); ?></h2>
+			<h2><?php esc_html_e( 'Recent AI crawler activity', 'citecue-ai-auto-fix' ); ?></h2>
 			<?php $this->render_activity(); ?>
-			<p class="description"><?php esc_html_e( 'Full analytics live in CiteCue → Agent Traffic. This local view exists to verify the integration is working.', 'citecue' ); ?></p>
+			<p class="description"><?php esc_html_e( 'Full analytics live in CiteCue → Agent Traffic. This local view exists to verify the integration is working.', 'citecue-ai-auto-fix' ); ?></p>
 		<?php
 	}
 
@@ -687,47 +687,47 @@ class Citecue_Admin {
 		$verified = $this->plugin->connect->last_verification();
 		?>
 		<div class="card" style="max-width:720px;">
-			<h2 style="margin-top:0;"><?php esc_html_e( 'Connected to CiteCue', 'citecue' ); ?></h2>
+			<h2 style="margin-top:0;"><?php esc_html_e( 'Connected to CiteCue', 'citecue-ai-auto-fix' ); ?></h2>
 			<table class="widefat striped" style="border:0;">
 				<tr>
-					<td style="width:34%;"><?php esc_html_e( 'Project', 'citecue' ); ?></td>
+					<td style="width:34%;"><?php esc_html_e( 'Project', 'citecue-ai-auto-fix' ); ?></td>
 					<td>
 						<?php if ( '' !== $domain ) : ?>
 							<strong><?php echo esc_html( $domain ); ?></strong>
 						<?php else : ?>
-							<em><?php esc_html_e( 'No project selected — pick one under Connection details.', 'citecue' ); ?></em>
+							<em><?php esc_html_e( 'No project selected — pick one under Connection details.', 'citecue-ai-auto-fix' ); ?></em>
 						<?php endif; ?>
 					</td>
 				</tr>
 				<tr>
-					<td><?php esc_html_e( 'Optimized pages', 'citecue' ); ?></td>
-					<td><?php echo $settings->get( 'serve_enabled' ) ? esc_html__( 'Served to AI crawlers', 'citecue' ) : esc_html__( 'Off', 'citecue' ); ?></td>
+					<td><?php esc_html_e( 'Optimized pages', 'citecue-ai-auto-fix' ); ?></td>
+					<td><?php echo $settings->get( 'serve_enabled' ) ? esc_html__( 'Served to AI crawlers', 'citecue-ai-auto-fix' ) : esc_html__( 'Off', 'citecue-ai-auto-fix' ); ?></td>
 				</tr>
 				<tr>
-					<td><?php esc_html_e( 'llms.txt', 'citecue' ); ?></td>
+					<td><?php esc_html_e( 'llms.txt', 'citecue-ai-auto-fix' ); ?></td>
 					<td>
 						<?php if ( $settings->get( 'llms_txt_enabled' ) ) : ?>
 							<a href="<?php echo esc_url( home_url( '/llms.txt' ) ); ?>"><?php echo esc_html( home_url( '/llms.txt' ) ); ?></a>
 						<?php else : ?>
-							<?php esc_html_e( 'Off', 'citecue' ); ?>
+							<?php esc_html_e( 'Off', 'citecue-ai-auto-fix' ); ?>
 						<?php endif; ?>
 					</td>
 				</tr>
 				<tr>
-					<td><?php esc_html_e( 'Content pushes', 'citecue' ); ?></td>
-					<td><?php echo $settings->get( 'ingest_enabled' ) ? esc_html__( 'Accepted (as drafts, unless raised below)', 'citecue' ) : esc_html__( 'Not accepted', 'citecue' ); ?></td>
+					<td><?php esc_html_e( 'Content pushes', 'citecue-ai-auto-fix' ); ?></td>
+					<td><?php echo $settings->get( 'ingest_enabled' ) ? esc_html__( 'Accepted (as drafts, unless raised below)', 'citecue-ai-auto-fix' ) : esc_html__( 'Not accepted', 'citecue-ai-auto-fix' ); ?></td>
 				</tr>
 				<tr>
-					<td><?php esc_html_e( 'Last check', 'citecue' ); ?></td>
+					<td><?php esc_html_e( 'Last check', 'citecue-ai-auto-fix' ); ?></td>
 					<td>
 						<?php if ( null === $verified ) : ?>
-							<em><?php esc_html_e( 'Not checked yet.', 'citecue' ); ?></em>
+							<em><?php esc_html_e( 'Not checked yet.', 'citecue-ai-auto-fix' ); ?></em>
 						<?php elseif ( ! empty( $verified['ok'] ) ) : ?>
 							<span style="color:#046b46;">&#10003;</span>
 							<?php
 							printf(
 								/* translators: %s: human time diff. */
-								esc_html__( 'Serving CiteCue’s llms.txt (checked %s ago)', 'citecue' ),
+								esc_html__( 'Serving CiteCue’s llms.txt (checked %s ago)', 'citecue-ai-auto-fix' ),
 								esc_html( human_time_diff( (int) $verified['checked_at'] ) )
 							);
 							?>
@@ -742,8 +742,8 @@ class Citecue_Admin {
 				</tr>
 			</table>
 			<p>
-				<?php $this->action_button( 'citecue_verify_install', __( 'Verify installation', 'citecue' ) ); ?>
-				<?php $this->action_button( 'citecue_disconnect', __( 'Disconnect', 'citecue' ) ); ?>
+				<?php $this->action_button( 'citecue_verify_install', __( 'Verify installation', 'citecue-ai-auto-fix' ) ); ?>
+				<?php $this->action_button( 'citecue_disconnect', __( 'Disconnect', 'citecue-ai-auto-fix' ) ); ?>
 			</p>
 		</div>
 		<?php
@@ -758,14 +758,14 @@ class Citecue_Admin {
 	private function render_api_base_row( Citecue_Settings $settings ) {
 		?>
 		<tr>
-			<th scope="row"><label for="citecue_api_base"><?php esc_html_e( 'API base URL', 'citecue' ); ?></label></th>
+			<th scope="row"><label for="citecue_api_base"><?php esc_html_e( 'API base URL', 'citecue-ai-auto-fix' ); ?></label></th>
 			<td>
 				<?php if ( $settings->api_base_is_locked() ) : ?>
 					<code><?php echo esc_html( $settings->api_base() ); ?></code>
-					<p class="description"><?php esc_html_e( 'Pinned by the CITECUE_API_BASE constant in wp-config.php.', 'citecue' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Pinned by the CITECUE_API_BASE constant in wp-config.php.', 'citecue-ai-auto-fix' ); ?></p>
 				<?php else : ?>
 					<input type="url" id="citecue_api_base" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[api_base]" value="<?php echo esc_attr( $settings->api_base() ); ?>" class="regular-text" />
-					<p class="description"><?php esc_html_e( 'Only change this for a self-hosted CiteCue deployment.', 'citecue' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Only change this for a self-hosted CiteCue deployment.', 'citecue-ai-auto-fix' ); ?></p>
 				<?php endif; ?>
 			</td>
 		</tr>
@@ -821,24 +821,24 @@ class Citecue_Admin {
 	private function render_activity() {
 		$entries = $this->plugin->activity->entries();
 		if ( empty( $entries ) ) {
-			echo '<p>' . esc_html__( 'No AI crawler visits recorded yet.', 'citecue' ) . '</p>';
+			echo '<p>' . esc_html__( 'No AI crawler visits recorded yet.', 'citecue-ai-auto-fix' ) . '</p>';
 			return;
 		}
 
 		$outcome_labels = array(
-			'served'       => __( 'Served optimized', 'citecue' ),
-			'served-stale' => __( 'Served (stale cache)', 'citecue' ),
-			'passthrough'  => __( 'Passed through', 'citecue' ),
-			'error'        => __( 'API error — passed through', 'citecue' ),
+			'served'       => __( 'Served optimized', 'citecue-ai-auto-fix' ),
+			'served-stale' => __( 'Served (stale cache)', 'citecue-ai-auto-fix' ),
+			'passthrough'  => __( 'Passed through', 'citecue-ai-auto-fix' ),
+			'error'        => __( 'API error — passed through', 'citecue-ai-auto-fix' ),
 		);
 		?>
 		<table class="widefat striped" style="max-width:820px;">
 			<thead>
 				<tr>
-					<th><?php esc_html_e( 'When', 'citecue' ); ?></th>
-					<th><?php esc_html_e( 'Crawler', 'citecue' ); ?></th>
-					<th><?php esc_html_e( 'Path', 'citecue' ); ?></th>
-					<th><?php esc_html_e( 'Outcome', 'citecue' ); ?></th>
+					<th><?php esc_html_e( 'When', 'citecue-ai-auto-fix' ); ?></th>
+					<th><?php esc_html_e( 'Crawler', 'citecue-ai-auto-fix' ); ?></th>
+					<th><?php esc_html_e( 'Path', 'citecue-ai-auto-fix' ); ?></th>
+					<th><?php esc_html_e( 'Outcome', 'citecue-ai-auto-fix' ); ?></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -848,7 +848,7 @@ class Citecue_Admin {
 							<?php
 							printf(
 								/* translators: %s: human time diff. */
-								esc_html__( '%s ago', 'citecue' ),
+								esc_html__( '%s ago', 'citecue-ai-auto-fix' ),
 								esc_html( human_time_diff( (int) $entry['time'] ) )
 							);
 							?>

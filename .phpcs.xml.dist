@@ -24,11 +24,16 @@
 	<rule ref="WordPress.WP.I18n">
 		<properties>
 			<property name="text_domain" type="array">
-				<element value="citecue"/>
+				<element value="citecue-ai-auto-fix"/>
 			</property>
 		</properties>
 	</rule>
 
+	<!--
+		The identifier prefix is not the text domain: the text domain has to
+		match the WordPress.org slug, hyphens and all, while a PHP class,
+		function or constant name cannot contain a hyphen.
+	-->
 	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
 		<properties>
 			<property name="prefixes" type="array">

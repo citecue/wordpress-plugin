@@ -107,7 +107,7 @@ final class Citecue_Plugin {
 	 * @return void
 	 */
 	public function on_init() {
-		load_plugin_textdomain( 'citecue', false, dirname( plugin_basename( CITECUE_PLUGIN_FILE ) ) . '/languages' );
+		load_plugin_textdomain( 'citecue-ai-auto-fix', false, dirname( plugin_basename( CITECUE_PLUGIN_FILE ) ) . '/languages' );
 
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
 			wp_schedule_event( time() + MINUTE_IN_SECONDS, 'daily', self::CRON_HOOK );

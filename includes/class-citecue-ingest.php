@@ -125,27 +125,27 @@ class Citecue_Ingest {
 		$settings = $this->plugin->settings;
 
 		if ( ! $settings->get( 'ingest_enabled' ) ) {
-			return new WP_Error( 'citecue_ingest_disabled', __( 'Content ingest is disabled in the CiteCue plugin settings.', 'citecue' ), array( 'status' => 403 ) );
+			return new WP_Error( 'citecue_ingest_disabled', __( 'Content ingest is disabled in the CiteCue plugin settings.', 'citecue-ai-auto-fix' ), array( 'status' => 403 ) );
 		}
 
 		$secret = (string) $settings->get( 'ingest_secret' );
 		if ( '' === $secret ) {
-			return new WP_Error( 'citecue_no_secret', __( 'No ingest secret is configured.', 'citecue' ), array( 'status' => 403 ) );
+			return new WP_Error( 'citecue_no_secret', __( 'No ingest secret is configured.', 'citecue-ai-auto-fix' ), array( 'status' => 403 ) );
 		}
 
 		$timestamp = (int) $request->get_header( 'x-citecue-timestamp' );
 		if ( abs( time() - $timestamp ) > self::TIMESTAMP_WINDOW ) {
-			return new WP_Error( 'citecue_stale_timestamp', __( 'Missing or expired X-Citecue-Timestamp header.', 'citecue' ), array( 'status' => 401 ) );
+			return new WP_Error( 'citecue_stale_timestamp', __( 'Missing or expired X-Citecue-Timestamp header.', 'citecue-ai-auto-fix' ), array( 'status' => 401 ) );
 		}
 
 		$signature = (string) $request->get_header( 'x-citecue-signature' );
 		if ( 0 !== strpos( $signature, 'sha256=' ) ) {
-			return new WP_Error( 'citecue_bad_signature', __( 'Missing or malformed X-Citecue-Signature header.', 'citecue' ), array( 'status' => 401 ) );
+			return new WP_Error( 'citecue_bad_signature', __( 'Missing or malformed X-Citecue-Signature header.', 'citecue-ai-auto-fix' ), array( 'status' => 401 ) );
 		}
 
 		$expected = hash_hmac( 'sha256', $timestamp . '.' . $request->get_body(), $secret );
 		if ( ! hash_equals( 'sha256=' . $expected, $signature ) ) {
-			return new WP_Error( 'citecue_bad_signature', __( 'Invalid request signature.', 'citecue' ), array( 'status' => 401 ) );
+			return new WP_Error( 'citecue_bad_signature', __( 'Invalid request signature.', 'citecue-ai-auto-fix' ), array( 'status' => 401 ) );
 		}
 
 		// Signatures are single-use: a captured request replayed within the
@@ -153,14 +153,14 @@ class Citecue_Ingest {
 		// Legitimate retries recompute the timestamp, minting a new signature.
 		$replay_key = 'citecue_replay_' . md5( $signature );
 		if ( get_transient( $replay_key ) ) {
-			return new WP_Error( 'citecue_replayed', __( 'This signature was already used; sign each request freshly.', 'citecue' ), array( 'status' => 401 ) );
+			return new WP_Error( 'citecue_replayed', __( 'This signature was already used; sign each request freshly.', 'citecue-ai-auto-fix' ), array( 'status' => 401 ) );
 		}
 		set_transient( $replay_key, 1, 2 * self::TIMESTAMP_WINDOW );
 
 		// After authentication on purpose: unsigned traffic can never consume
 		// the budget and lock out legitimate pushes.
 		if ( ! $this->within_rate_limit() ) {
-			return new WP_Error( 'citecue_rate_limited', __( 'Too many ingest requests; try again later.', 'citecue' ), array( 'status' => 429 ) );
+			return new WP_Error( 'citecue_rate_limited', __( 'Too many ingest requests; try again later.', 'citecue-ai-auto-fix' ), array( 'status' => 429 ) );
 		}
 
 		return true;
@@ -195,7 +195,7 @@ class Citecue_Ingest {
 	public function handle_content( WP_REST_Request $request ) {
 		$params = $request->get_json_params();
 		if ( ! is_array( $params ) ) {
-			return new WP_Error( 'citecue_bad_json', __( 'Request body must be JSON.', 'citecue' ), array( 'status' => 400 ) );
+			return new WP_Error( 'citecue_bad_json', __( 'Request body must be JSON.', 'citecue-ai-auto-fix' ), array( 'status' => 400 ) );
 		}
 
 		$external_id = isset( $params['external_id'] ) ? $this->sanitize_external_id( $params['external_id'] ) : '';
@@ -203,7 +203,7 @@ class Citecue_Ingest {
 		$content_raw = isset( $params['content'] ) ? (string) $params['content'] : '';
 
 		if ( '' === $external_id || '' === $title || '' === trim( $content_raw ) ) {
-			return new WP_Error( 'citecue_missing_fields', __( 'external_id, title and content are required.', 'citecue' ), array( 'status' => 400 ) );
+			return new WP_Error( 'citecue_missing_fields', __( 'external_id, title and content are required.', 'citecue-ai-auto-fix' ), array( 'status' => 400 ) );
 		}
 
 		$content = wp_kses_post( $content_raw );
@@ -213,7 +213,7 @@ class Citecue_Ingest {
 
 		$requested_type = isset( $params['type'] ) ? (string) $params['type'] : '';
 		if ( 'product' === $requested_type && ! class_exists( 'WooCommerce' ) ) {
-			return new WP_Error( 'citecue_woocommerce_missing', __( 'This payload targets a WooCommerce product, but WooCommerce is not active on this site.', 'citecue' ), array( 'status' => 400 ) );
+			return new WP_Error( 'citecue_woocommerce_missing', __( 'This payload targets a WooCommerce product, but WooCommerce is not active on this site.', 'citecue-ai-auto-fix' ), array( 'status' => 400 ) );
 		}
 		$allowed_types = array( 'post', 'page' );
 		if ( class_exists( 'WooCommerce' ) ) {
@@ -236,7 +236,7 @@ class Citecue_Ingest {
 				if ( ! $force ) {
 					return new WP_Error(
 						'citecue_sku_exists',
-						__( 'A product with this SKU already exists; send force=true to adopt and update it.', 'citecue' ),
+						__( 'A product with this SKU already exists; send force=true to adopt and update it.', 'citecue-ai-auto-fix' ),
 						array(
 							'status'  => 409,
 							'post_id' => $sku_match,
@@ -250,7 +250,7 @@ class Citecue_Ingest {
 		if ( $existing_id && get_post_type( $existing_id ) !== $post_type ) {
 			return new WP_Error(
 				'citecue_type_conflict',
-				__( 'This external_id already exists with a different content type.', 'citecue' ),
+				__( 'This external_id already exists with a different content type.', 'citecue-ai-auto-fix' ),
 				array(
 					'status'  => 409,
 					'post_id' => $existing_id,
@@ -263,7 +263,7 @@ class Citecue_Ingest {
 		if ( $existing_id && 'trash' === get_post_status( $existing_id ) ) {
 			return new WP_Error(
 				'citecue_trashed',
-				__( 'A post with this external_id was trashed in WordPress; restore or delete it permanently first.', 'citecue' ),
+				__( 'A post with this external_id was trashed in WordPress; restore or delete it permanently first.', 'citecue-ai-auto-fix' ),
 				array(
 					'status'  => 410,
 					'post_id' => $existing_id,
@@ -274,7 +274,7 @@ class Citecue_Ingest {
 		if ( $existing_id && ! $force && $this->edited_locally( $existing_id ) ) {
 			return new WP_Error(
 				'citecue_edited_locally',
-				__( 'This post was edited in WordPress after the last push; send force=true to overwrite.', 'citecue' ),
+				__( 'This post was edited in WordPress after the last push; send force=true to overwrite.', 'citecue-ai-auto-fix' ),
 				array(
 					'status'  => 409,
 					'post_id' => $existing_id,
@@ -444,13 +444,13 @@ class Citecue_Ingest {
 	 */
 	private function upsert_product( $existing_id, array $params, $title, $content, $status ) {
 		if ( ! function_exists( 'wc_get_product' ) ) {
-			return new WP_Error( 'citecue_woocommerce_missing', __( 'WooCommerce is not active on this site.', 'citecue' ), array( 'status' => 400 ) );
+			return new WP_Error( 'citecue_woocommerce_missing', __( 'WooCommerce is not active on this site.', 'citecue-ai-auto-fix' ), array( 'status' => 400 ) );
 		}
 
 		try {
 			$product = $existing_id ? wc_get_product( $existing_id ) : new WC_Product_Simple();
 			if ( ! $product ) {
-				return new WP_Error( 'citecue_product_load_failed', __( 'The existing product could not be loaded.', 'citecue' ), array( 'status' => 500 ) );
+				return new WP_Error( 'citecue_product_load_failed', __( 'The existing product could not be loaded.', 'citecue-ai-auto-fix' ), array( 'status' => 500 ) );
 			}
 
 			$product->set_name( $title );
@@ -474,11 +474,11 @@ class Citecue_Ingest {
 			// E.g. the SKU belongs to a different product.
 			return new WP_Error( 'citecue_product_invalid', $e->getMessage(), array( 'status' => 409 ) );
 		} catch ( Throwable $e ) {
-			return new WP_Error( 'citecue_product_failed', __( 'WooCommerce rejected the product.', 'citecue' ), array( 'status' => 500 ) );
+			return new WP_Error( 'citecue_product_failed', __( 'WooCommerce rejected the product.', 'citecue-ai-auto-fix' ), array( 'status' => 500 ) );
 		}
 
 		if ( $post_id <= 0 ) {
-			return new WP_Error( 'citecue_product_failed', __( 'WooCommerce rejected the product.', 'citecue' ), array( 'status' => 500 ) );
+			return new WP_Error( 'citecue_product_failed', __( 'WooCommerce rejected the product.', 'citecue-ai-auto-fix' ), array( 'status' => 500 ) );
 		}
 
 		// WC's CRUD does not take an author; attribute newly created products

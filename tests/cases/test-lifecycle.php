@@ -148,6 +148,49 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A site that installed a pre-WordPress.org release has this plugin in a
+	 * citecue/ directory, and the directory's copy installs alongside it
+	 * rather than over it. Loading the second copy must be inert: without the
+	 * guard it redeclares every class and the site fatals.
+	 *
+	 * The bootstrap has already loaded the plugin, so requiring the main file
+	 * again puts us in exactly the state the second copy sees.
+	 *
+	 * @return void
+	 */
+	public function test_a_second_copy_stands_down_with_a_notice() {
+		$this->assertTrue( defined( 'CITECUE_VERSION' ), 'The first copy should already be loaded.' );
+
+		require dirname( __DIR__, 2 ) . '/citecue.php';
+
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		ob_start();
+		do_action( 'admin_notices' );
+		$notice = ob_get_clean();
+
+		$this->assertStringContainsString( 'installed twice', $notice );
+		$this->assertStringContainsString( plugin_basename( CITECUE_PLUGIN_FILE ), $notice );
+	}
+
+	/**
+	 * The notice names directories to delete, so it is only for someone who
+	 * can act on it.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_is_hidden_from_users_who_cannot_act() {
+		require dirname( __DIR__, 2 ) . '/citecue.php';
+
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'subscriber' ) ) );
+
+		ob_start();
+		do_action( 'admin_notices' );
+
+		$this->assertSame( '', ob_get_clean() );
+	}
+
+	/**
 	 * Uninstall removes the plugin's own settings…
 	 *
 	 * @return void

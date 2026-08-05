@@ -101,3 +101,4 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 * Hardening: single-use ingest signatures (replay rejection), per-minute delivery lookup budget, CiteCue-compatible cache-key URL normalization, cache eviction on delivery misses, and crawler-registry downgrade rejection with the bundled token floor.
 * One-click connect: a pairing handshake sets up the site without copying an API key in or a signing secret out, with a built-in "Verify installation" check. Connecting with an API key remains available as a fallback.
 * An install that has not been connected to CiteCue makes no outbound requests of any kind.
+* A second copy of the plugin, from a pre-directory release installed in another folder, stands down with an admin notice instead of taking the site down.

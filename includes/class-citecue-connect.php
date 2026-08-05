@@ -247,7 +247,7 @@ class Citecue_Connect {
 				false,
 				0,
 				'',
-				__( 'This check asks for the site’s llms.txt, which is switched off below. Turn on “Serve llms.txt” to run it.', 'citecue' ),
+				__( 'This check asks for the site’s llms.txt, which is switched off below. Turn on “Serve llms.txt” to run it.', 'citecue-ai-auto-fix' ),
 				true
 			);
 		}
@@ -280,7 +280,7 @@ class Citecue_Connect {
 
 		if ( 200 !== $status ) {
 			/* translators: %d: HTTP status code. */
-			return self::verdict( false, $status, $marker, sprintf( __( 'The site answered with HTTP %d.', 'citecue' ), $status ) );
+			return self::verdict( false, $status, $marker, sprintf( __( 'The site answered with HTTP %d.', 'citecue-ai-auto-fix' ), $status ) );
 		}
 
 		if ( '' === $marker ) {
@@ -288,7 +288,7 @@ class Citecue_Connect {
 				false,
 				$status,
 				$marker,
-				__( 'The response did not carry the “x-citecue” header. A full-page cache or CDN in front of PHP is the usual cause — exclude AI-crawler user agents from it, or use CiteCue’s Cloudflare Worker instead.', 'citecue' )
+				__( 'The response did not carry the “x-citecue” header. A full-page cache or CDN in front of PHP is the usual cause — exclude AI-crawler user agents from it, or use CiteCue’s Cloudflare Worker instead.', 'citecue-ai-auto-fix' )
 			);
 		}
 
@@ -298,7 +298,7 @@ class Citecue_Connect {
 			$marker,
 			sprintf(
 				/* translators: 1: header value received, 2: header value expected. */
-				__( 'Something other than the llms.txt handler answered — the response carried “x-citecue: %1$s” rather than “%2$s”. CiteCue most likely has no llms.txt for this project yet.', 'citecue' ),
+				__( 'Something other than the llms.txt handler answered — the response carried “x-citecue: %1$s” rather than “%2$s”. CiteCue most likely has no llms.txt for this project yet.', 'citecue-ai-auto-fix' ),
 				$marker,
 				self::VERIFY_MARKER
 			)
