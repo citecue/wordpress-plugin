@@ -178,7 +178,9 @@ class Citecue_Llms_Txt {
 			return false;
 		}
 
-		$path = (string) wp_parse_url( wp_unslash( $_SERVER['REQUEST_URI'] ), PHP_URL_PATH );
+		// esc_url_raw() rather than sanitize_text_field(), which strips
+		// percent-encoded sequences and would corrupt the path being matched.
+		$path = (string) wp_parse_url( esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ), PHP_URL_PATH );
 
 		$home_path = (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH );
 		$target    = untrailingslashit( $home_path ) . '/llms.txt';

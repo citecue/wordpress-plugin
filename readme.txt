@@ -4,7 +4,7 @@ Tags: ai, llms.txt, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -99,6 +99,10 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploading the zip from GitHub, delete the old citecue folder after updating — your settings and connection are stored in the database and carry over untouched.
 
 == Changelog ==
+
+= 1.0.2 =
+* Translations no longer depend on the plugin loading them by hand; WordPress.org supplies them for the plugin slug.
+* The requested URL is sanitized on the way to CiteCue in a way that preserves percent-encoding, so pages with accented or non-Latin characters in the address are served and cached under the address they actually have.
 
 = 1.0.1 =
 * First release in the WordPress.org plugin directory.

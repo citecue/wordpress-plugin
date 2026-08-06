@@ -308,7 +308,10 @@ class Citecue_Proxy {
 		}
 		$scheme = is_ssl() ? 'https' : 'http';
 		$host   = sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) );
-		$uri    = wp_unslash( $_SERVER['REQUEST_URI'] );
+		// esc_url_raw(), not sanitize_text_field(): the latter deletes every
+		// percent-encoded sequence it finds, so /caf%C3%A9/ would reach CiteCue
+		// as /caf/ and be cached under the wrong key.
+		$uri = esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
 		return esc_url_raw( $scheme . '://' . $host . $uri );
 	}
 
