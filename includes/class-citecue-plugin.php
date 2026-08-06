@@ -102,13 +102,16 @@ final class Citecue_Plugin {
 	}
 
 	/**
-	 * Init: translations + cron self-heal.
+	 * Init: cron self-heal.
+	 *
+	 * There is deliberately no load_plugin_textdomain() call. Since WordPress
+	 * 4.6 a plugin hosted on WordPress.org has its translations loaded for it,
+	 * keyed by the slug — which is exactly what the text domain is now. The
+	 * call was pointing at a languages/ directory this plugin does not ship.
 	 *
 	 * @return void
 	 */
 	public function on_init() {
-		load_plugin_textdomain( 'citecue-ai-auto-fix', false, dirname( plugin_basename( CITECUE_PLUGIN_FILE ) ) . '/languages' );
-
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
 			wp_schedule_event( time() + MINUTE_IN_SECONDS, 'daily', self::CRON_HOOK );
 		}

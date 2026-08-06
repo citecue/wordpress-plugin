@@ -76,6 +76,27 @@ class Test_Citecue_Proxy_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The requested URL reaches CiteCue with its percent-encoding intact.
+	 *
+	 * This is a standing trap rather than a hypothetical: REQUEST_URI has to
+	 * be sanitized to satisfy Plugin Check, and the reflex choice —
+	 * sanitize_text_field() — deletes every %xx sequence it finds. Under it
+	 * this URL would arrive as /caf/, which is a different page, cached under
+	 * a key CiteCue never answers for.
+	 *
+	 * @return void
+	 */
+	public function test_a_percent_encoded_url_is_not_mangled_on_the_way_out() {
+		$encoded = $this->fake_crawler_request( '/caf%C3%A9/' );
+		$this->http->queue( 'page', 200, '<html>optimized</html>' );
+
+		$this->proxy()->decide();
+
+		$this->assertStringContainsString( '%C3%A9', rawurldecode( $this->http->last( 'page' )['url'] ) );
+		$this->assertStringContainsString( 'caf%C3%A9', $encoded );
+	}
+
+	/**
 	 * A second hit revalidates with the stored ETag instead of re-downloading.
 	 *
 	 * @return void
