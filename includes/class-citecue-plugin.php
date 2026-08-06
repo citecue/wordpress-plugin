@@ -107,7 +107,7 @@ final class Citecue_Plugin {
 	 * @return void
 	 */
 	public function on_init() {
-		load_plugin_textdomain( 'citecue', false, dirname( plugin_basename( CITECUE_PLUGIN_FILE ) ) . '/languages' );
+		load_plugin_textdomain( 'citecue-ai-auto-fix', false, dirname( plugin_basename( CITECUE_PLUGIN_FILE ) ) . '/languages' );
 
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
 			wp_schedule_event( time() + MINUTE_IN_SECONDS, 'daily', self::CRON_HOOK );
@@ -118,9 +118,19 @@ final class Citecue_Plugin {
 	 * Daily sync: refresh the AI-crawler registry so new crawlers are served
 	 * without a plugin update.
 	 *
+	 * Only for a site that has connected itself to CiteCue. Activating a
+	 * plugin is not consent to talk to a third party, so an unconnected site
+	 * must reach nothing on the network — and it loses nothing by staying
+	 * quiet, because it is not serving crawlers either, and the bundled token
+	 * list is what the registry would refresh.
+	 *
 	 * @return void
 	 */
 	public function daily_sync() {
+		if ( ! $this->settings->is_connected() ) {
+			return;
+		}
+
 		$this->crawlers->refresh( $this->api );
 	}
 

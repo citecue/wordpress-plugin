@@ -1,9 +1,10 @@
 name: Release
 
-# Publishes citecue.zip — an archive that unpacks to citecue/ and contains only
-# the runtime files — as a release asset, so that installing the plugin is
-# "Plugins → Add New → Upload" rather than "download the source, rename the
-# folder, delete the tests".
+# Publishes citecue-ai-auto-fix.zip — an archive that unpacks to
+# citecue-ai-auto-fix/ (the WordPress.org slug, so the two install channels
+# share one directory) and contains only the runtime files — as a release
+# asset, so that installing the plugin is "Plugins → Add New → Upload" rather
+# than "download the source, rename the folder, delete the tests".
 
 on:
   push:
@@ -45,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: citecue-plugin-zip
-          path: dist/citecue.zip
+          path: dist/citecue-ai-auto-fix.zip
           if-no-files-found: error
 
       - name: Attach the zip to the release
@@ -54,9 +55,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/citecue.zip --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/citecue-ai-auto-fix.zip --clobber
           else
-            gh release create "$GITHUB_REF_NAME" dist/citecue.zip \
+            gh release create "$GITHUB_REF_NAME" dist/citecue-ai-auto-fix.zip \
               --title "$GITHUB_REF_NAME" \
               --generate-notes
           fi

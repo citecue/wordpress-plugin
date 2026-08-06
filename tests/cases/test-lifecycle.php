@@ -102,6 +102,7 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 * @return void
 	 */
 	public function test_the_daily_sync_refreshes_the_crawler_registry() {
+		$this->configure_delivery();
 		$this->http->queue(
 			'crawlers',
 			200,
@@ -124,11 +125,81 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 * @return void
 	 */
 	public function test_the_daily_sync_survives_an_outage() {
+		$this->configure_delivery();
 		$this->http->queue_error( 'crawlers' );
 
 		$this->plugin->daily_sync();
 
 		$this->assertSame( 'GPTBot', $this->plugin->crawlers->match( 'GPTBot/1.2' ) );
+	}
+
+	/**
+	 * Activating a plugin is not consent to talk to a third party. Until the
+	 * site has connected itself, the cron must reach nothing — the HTTP mock
+	 * throws on any unqueued call, so an outbound request fails this test.
+	 *
+	 * @return void
+	 */
+	public function test_the_daily_sync_is_silent_until_the_site_connects() {
+		$this->plugin->daily_sync();
+
+		$this->assertSame( 0, $this->http->count() );
+		$this->assertSame( Citecue_Crawlers::bundled_tokens(), $this->plugin->crawlers->get_tokens() );
+	}
+
+	/**
+	 * A site that installed a pre-WordPress.org release has this plugin in a
+	 * citecue/ directory, and the directory's copy installs alongside it
+	 * rather than over it. Loading the second copy must be inert: without the
+	 * guard it redeclares every class and the site fatals.
+	 *
+	 * The bootstrap has already loaded the plugin, so requiring the main file
+	 * again puts us in exactly the state the second copy sees.
+	 *
+	 * @return void
+	 */
+	public function test_a_second_copy_stands_down_with_a_notice() {
+		$this->assertTrue( defined( 'CITECUE_VERSION' ), 'The first copy should already be loaded.' );
+
+		$notice = $this->render_duplicate_notice_as( 'administrator' );
+
+		$this->assertStringContainsString( 'installed twice', $notice );
+		$this->assertStringContainsString( plugin_basename( CITECUE_PLUGIN_FILE ), $notice );
+	}
+
+	/**
+	 * The notice names directories to delete, so it is only for someone who
+	 * can act on it.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_is_hidden_from_users_who_cannot_act() {
+		$this->assertSame( '', $this->render_duplicate_notice_as( 'subscriber' ) );
+	}
+
+	/**
+	 * Loads the main file a second time — which is the state the duplicate
+	 * copy boots into — and renders what it hooked onto `admin_notices`.
+	 *
+	 * The hook is emptied first so that firing it runs only the guard's
+	 * callback. Other plugins listen on `admin_notices` too, and with a real
+	 * WooCommerce installed one of them reads `get_current_screen()`, which is
+	 * null outside a genuine admin request. Isolating the hook keeps this a
+	 * test of the guard rather than of whatever else happens to be active.
+	 *
+	 * @param string $role Role of the user viewing the admin screen.
+	 * @return string Rendered notice markup.
+	 */
+	private function render_duplicate_notice_as( $role ) {
+		remove_all_actions( 'admin_notices' );
+
+		require dirname( __DIR__, 2 ) . '/citecue.php';
+
+		wp_set_current_user( self::factory()->user->create( array( 'role' => $role ) ) );
+
+		ob_start();
+		do_action( 'admin_notices' );
+		return ob_get_clean();
 	}
 
 	/**
@@ -175,7 +246,7 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 */
 	private function run_uninstall() {
 		if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
-			define( 'WP_UNINSTALL_PLUGIN', 'citecue/citecue.php' );
+			define( 'WP_UNINSTALL_PLUGIN', 'citecue-ai-auto-fix/citecue.php' );
 		}
 
 		require dirname( __DIR__, 2 ) . '/uninstall.php';

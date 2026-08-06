@@ -2,7 +2,7 @@
 Contributors: citecue
 Tags: ai, llms.txt, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
-Tested up to: 6.8
+Tested up to: 7.0
 Requires PHP: 7.4
 Stable tag: 1.0.0
 License: GPLv2 or later
@@ -19,16 +19,41 @@ CiteCue AI Auto-Fix connects your WordPress site to CiteCue:
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
 * **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
 
-Requires a CiteCue account.
+This plugin requires a CiteCue account (citecue.com) and does nothing until you connect one. See "External services" below for exactly what is sent where.
 
 == Installation ==
 
-1. In WordPress, go to Plugins → Add New → Upload Plugin, choose `citecue.zip` and activate it.
+1. Install and activate the plugin from Plugins → Add New, or upload it under Plugins → Add New → Upload Plugin.
 2. Go to Settings → CiteCue and click "Connect to CiteCue".
 3. Confirm the project for this site in CiteCue. You are redirected back and the plugin checks itself.
 4. Add and generate optimized pages on CiteCue's Auto-Fix page.
 
 There is nothing to copy or paste: the connection brings the API key back to WordPress and hands CiteCue this site's address and content-push secret. Sites that cannot complete a browser round-trip to CiteCue can still connect with an organization API key — "Connect with an API key instead" on the settings screen.
+
+Until you complete step 2, the plugin makes no outbound requests at all.
+
+== External services ==
+
+This plugin is the WordPress end of CiteCue, a hosted service at https://citecue.com that generates AI-optimized versions of your pages. The optimized pages, your llms.txt and the pushed draft content are all produced by that service, so the plugin cannot work without it. Nothing below happens until an administrator connects the site.
+
+Terms of Service: https://citecue.com/terms
+Privacy Policy: https://citecue.com/privacy
+
+The service is reached at `https://app.citecue.com` (or the origin you pin with the `CITECUE_API_BASE` constant, for self-hosted CiteCue deployments).
+
+**Connecting the site** — once, when an administrator clicks "Connect to CiteCue". Your browser is sent to `app.citecue.com/connect/wordpress` with this site's address so CiteCue can show you which project you are pairing. WordPress then posts to `/api/delivery/v2/connect/claim`: the one-time code from that redirect, this site's address, its REST API address, this site's content-push secret, the plugin version, and whether WooCommerce is active. CiteCue returns the API key it issued for this site. The API-key fallback instead sends the key you paste to `/api/delivery/v2/config`, which returns your organization's projects.
+
+**Serving a page to an AI crawler** — on each request from a matched AI crawler, and never for a human visitor or a logged-in user. The plugin sends the requested URL, the matched crawler's User-Agent token and the site's project key to `/api/delivery/v2/page`. No visitor data — no IP address, no cookies, no personal data — is sent. CiteCue records the crawler hit so it can report it back to you. Responses are cached, misses are remembered for a minute, and a per-minute budget caps the total.
+
+**Serving llms.txt** — when `/llms.txt` is requested and the feature is on. The site's project key is sent to `/api/delivery/v2/llms.txt`. The response is cached.
+
+**Refreshing the AI-crawler list** — once a day, on WP-Cron, for a connected site only. An unauthenticated request to `/api/delivery/v1/crawlers` fetches the current list of AI crawler User-Agent tokens, so newly launched crawlers are recognised without a plugin update.
+
+**Verifying the installation** — when you connect, and whenever you click "Verify installation". The plugin requests your own site's `/llms.txt` over HTTP, identifying itself as an AI crawler, to confirm the plugin answers rather than a cache or CDN. This request goes to your site, not to CiteCue.
+
+Every outbound request identifies itself with a `CiteCue-WordPress/<version> (+<your site URL>)` User-Agent.
+
+In the other direction: when content pushes are enabled, CiteCue sends new content to this site's `citecue/v1` REST route. Each request is signed with the shared secret exchanged during connection, replayed signatures are rejected, and the content is created as a draft unless you raise that limit yourself.
 
 == Frequently Asked Questions ==
 
@@ -75,3 +100,5 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 * WooCommerce support: store-page exclusions for the middleware; product create/enrich through the ingest endpoint.
 * Hardening: single-use ingest signatures (replay rejection), per-minute delivery lookup budget, CiteCue-compatible cache-key URL normalization, cache eviction on delivery misses, and crawler-registry downgrade rejection with the bundled token floor.
 * One-click connect: a pairing handshake sets up the site without copying an API key in or a signing secret out, with a built-in "Verify installation" check. Connecting with an API key remains available as a fallback.
+* An install that has not been connected to CiteCue makes no outbound requests of any kind.
+* A second copy of the plugin, from a pre-directory release installed in another folder, stands down with an admin notice instead of taking the site down.

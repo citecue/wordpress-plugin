@@ -161,10 +161,10 @@ class Citecue_Api_Client {
 
 		if ( 200 !== $result['status'] ) {
 			$reasons  = array(
-				'invalid_code'  => __( 'That connection link is not valid. Start the connection again from WordPress.', 'citecue' ),
-				'code_used'     => __( 'That connection link has already been used. Start the connection again from WordPress.', 'citecue' ),
-				'code_expired'  => __( 'That connection link expired. Start the connection again from WordPress.', 'citecue' ),
-				'site_mismatch' => __( 'CiteCue issued that link for a different site address than this one.', 'citecue' ),
+				'invalid_code'  => __( 'That connection link is not valid. Start the connection again from WordPress.', 'citecue-ai-auto-fix' ),
+				'code_used'     => __( 'That connection link has already been used. Start the connection again from WordPress.', 'citecue-ai-auto-fix' ),
+				'code_expired'  => __( 'That connection link expired. Start the connection again from WordPress.', 'citecue-ai-auto-fix' ),
+				'site_mismatch' => __( 'CiteCue issued that link for a different site address than this one.', 'citecue-ai-auto-fix' ),
 			);
 			$code_key = isset( $data['error'] ) ? (string) $data['error'] : '';
 
@@ -172,11 +172,11 @@ class Citecue_Api_Client {
 				return new WP_Error( 'citecue_connect_' . $code_key, $reasons[ $code_key ] );
 			}
 			/* translators: %d: HTTP status code. */
-			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue' ), $result['status'] ) );
+			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue-ai-auto-fix' ), $result['status'] ) );
 		}
 
 		if ( empty( $data['apiKey'] ) || empty( $data['publicKey'] ) ) {
-			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue' ) );
+			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue-ai-auto-fix' ) );
 		}
 
 		$connection = array(
@@ -206,16 +206,16 @@ class Citecue_Api_Client {
 		}
 
 		if ( 401 === $result['status'] ) {
-			return new WP_Error( 'citecue_invalid_key', __( 'CiteCue rejected the API key. Check it under CiteCue → Settings → API keys.', 'citecue' ) );
+			return new WP_Error( 'citecue_invalid_key', __( 'CiteCue rejected the API key. Check it under CiteCue → Settings → API keys.', 'citecue-ai-auto-fix' ) );
 		}
 		if ( 200 !== $result['status'] ) {
 			/* translators: %d: HTTP status code. */
-			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue' ), $result['status'] ) );
+			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue-ai-auto-fix' ), $result['status'] ) );
 		}
 
 		$data = json_decode( $result['body'], true );
 		if ( ! is_array( $data ) || ! isset( $data['projects'] ) || ! is_array( $data['projects'] ) ) {
-			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue' ) );
+			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue-ai-auto-fix' ) );
 		}
 
 		return $data['projects'];
@@ -302,12 +302,12 @@ class Citecue_Api_Client {
 		}
 		if ( 200 !== $result['status'] ) {
 			/* translators: %d: HTTP status code. */
-			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue' ), $result['status'] ) );
+			return new WP_Error( 'citecue_http_error', sprintf( __( 'Unexpected response from CiteCue (HTTP %d).', 'citecue-ai-auto-fix' ), $result['status'] ) );
 		}
 
 		$data = json_decode( $result['body'], true );
 		if ( ! is_array( $data ) || empty( $data['tokens'] ) || ! is_array( $data['tokens'] ) ) {
-			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue' ) );
+			return new WP_Error( 'citecue_bad_payload', __( 'CiteCue returned an unexpected payload.', 'citecue-ai-auto-fix' ) );
 		}
 
 		return $data;
