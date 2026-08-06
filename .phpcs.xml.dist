@@ -44,13 +44,12 @@
 	</rule>
 
 	<!--
-		DONOTCACHEPAGE is the cross-plugin convention page caches look for; the
-		point is that other plugins recognise it, so it cannot be prefixed.
+		The DONOTCACHEPAGE exemption is not here. It lives on the two define()
+		calls as phpcs:ignore annotations, because an exclusion written here
+		only applies to this ruleset — Plugin Check runs its own, and reports
+		the constant to the reviewer. An annotation travels with the code and
+		is the route Plugin Check documents for a false positive.
 	-->
-	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound">
-		<exclude-pattern>/includes/class-citecue-proxy\.php</exclude-pattern>
-		<exclude-pattern>/includes/class-citecue-llms-txt\.php</exclude-pattern>
-	</rule>
 
 	<!-- "llms.txt" is a filename and stays lowercase in prose. -->
 	<rule ref="Generic.Commenting.DocComment.ShortNotCapital">

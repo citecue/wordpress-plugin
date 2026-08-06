@@ -197,6 +197,7 @@ class Citecue_Llms_Txt {
 	 */
 	private function serve( $body ) {
 		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- the cross-plugin constant page caches look for; prefixing it would mean no cache ever sees it.
 			define( 'DONOTCACHEPAGE', true );
 		}
 

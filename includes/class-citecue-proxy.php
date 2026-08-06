@@ -327,6 +327,7 @@ class Citecue_Proxy {
 	 */
 	private function serve( $body, $mode, $stale ) {
 		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- the cross-plugin constant page caches look for; prefixing it would mean no cache ever sees it.
 			define( 'DONOTCACHEPAGE', true );
 		}
 
