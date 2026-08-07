@@ -349,6 +349,9 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 		$this->assertSame( 'not-optimized', $this->seo_head()->refresh( $url ) );
 
 		$this->assertNull( $this->plugin->cache->get_seo_head( $url ) );
+		// The half this test was named for but did not check: without the miss,
+		// every subsequent page view would queue the fetch again.
+		$this->assertTrue( $this->plugin->cache->is_recent_seo_head_miss( $url ) );
 	}
 
 	/**
