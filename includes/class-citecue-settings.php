@@ -317,6 +317,18 @@ class Citecue_Settings {
 			delete_transient( 'citecue_circuit' );
 		}
 
+		// A changed project invalidates every cached body, llms.txt and head
+		// block on the site (PR #10 review). All three key off the cache salt
+		// and the URL and NOT off the project, so without this an administrator
+		// who repoints the site at another CiteCue project keeps being served
+		// the previous project's content under the new one's name — its
+		// optimized pages to crawlers, and its title, canonical and structured
+		// data onto live pages, for up to a day. Disconnecting already flushes;
+		// switching project is the same event by another route.
+		if ( $out['public_key'] !== $current['public_key'] ) {
+			( new Citecue_Cache() )->flush();
+		}
+
 		$this->values = $out;
 		return $out;
 	}

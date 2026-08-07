@@ -250,7 +250,7 @@ class Citecue_Proxy {
 		if ( '' !== (string) get_query_var( 'sitemap' ) ) {
 			return false;
 		}
-		if ( $this->is_excluded_woocommerce_request() ) {
+		if ( Citecue_Plugin::is_woocommerce_request() ) {
 			return false;
 		}
 		if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) {
@@ -269,31 +269,6 @@ class Citecue_Proxy {
 			return false;
 		}
 		return true;
-	}
-
-	/**
-	 * WooCommerce requests the proxy must never touch: cart, checkout (incl.
-	 * order-pay / order-received), account pages and every other WC endpoint
-	 * are session/transactional; `?add-to-cart=` GETs mutate the cart and
-	 * `wc-ajax` calls are API traffic. Product and shop-archive pages remain
-	 * eligible — those are the highest-value pages to serve optimized.
-	 *
-	 * @return bool True when this request belongs to WooCommerce.
-	 */
-	private function is_excluded_woocommerce_request() {
-		if ( ! class_exists( 'WooCommerce' ) ) {
-			return false;
-		}
-		if ( function_exists( 'is_cart' ) && ( is_cart() || is_checkout() || is_account_page() ) ) {
-			return true;
-		}
-		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url() ) {
-			return true;
-		}
-		if ( isset( $_GET['wc-ajax'] ) || isset( $_GET['add-to-cart'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request classification.
-			return true;
-		}
-		return false;
 	}
 
 	/**

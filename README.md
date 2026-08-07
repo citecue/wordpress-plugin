@@ -37,7 +37,9 @@ cloaking.
 - **Abuse-bounded.** Cache keys use CiteCue-compatible URL normalization (tracking params, `www.`, trailing slashes deduped), and outbound lookups are capped by a per-minute budget shared across the crawler and llms.txt paths (default 120, filterable) — neither a spoofed crawler UA spraying unique URLs nor a flood on `/llms.txt` can force unbounded API calls. When CiteCue reports a page is no longer optimized, its cached copy is evicted immediately.
 - **Crawler registry.** A bundled token list ships with the plugin and refreshes daily from the public `GET /api/delivery/v1/crawlers` feed, so newly added crawlers are served without a plugin update.
 - **Metadata never blocks a render.** The `wp_head` path reads the transient cache and nothing else. A URL with no cached block renders untouched and queues a WP-Cron fetch, so the *next* visitor gets the tags; a stale block keeps being printed while the refresh runs. A human page view never waits on CiteCue.
-- **Gap-filling, not overriding.** The injector buffers `wp_head`, reads the slots the rest of it filled (title, canonical, each meta name/property, JSON-LD) and drops any CiteCue tag whose slot is taken — detection by output, so it is correct against SEO plugins and themes it has never heard of. It never emits a second `<title>` or a second canonical.
+- **Gap-filling, not overriding.** The injector captures the rendered `<head>` (buffering from `template_redirect` so a theme printing its own `<title>` in `header.php` is seen too, not just `wp_head` output), reads the slots already filled — title, canonical, each meta name/property, JSON-LD — and drops any CiteCue tag whose slot is taken. Detection by output, so it is correct against SEO plugins and themes it has never heard of. It never emits a second `<title>` or a second canonical.
+- **Nothing from the response is echoed.** Every tag is parsed, checked against an allowlist of shapes, and *rebuilt* from escaped values: only `application/ld+json` scripts (re-encoded with `JSON_HEX_TAG`), only `canonical`/`alternate` links with an http/https `href`, only `<meta>` carrying a `name`/`property`. Attributes outside that set are discarded. A regex that merely inspects remote markup is one quoted attribute away from authorizing something it misread; rebuilding cannot be.
+- **A visitor cannot grow the queue.** The lookup URL is the request's own minus every query argument WordPress does not recognize as a query variable, and scheduling is capped per minute. Without both, `/?x=<random>` — which renders the homepage — would mint unlimited cache keys and cron events. It also keeps order keys, reset tokens and nonces out of what is cached and sent; WooCommerce cart/checkout/account pages are skipped outright, as on the crawler path.
 - **Verification-compatible.** Served pages carry `X-Citecue: served` and llms.txt carries `X-Citecue: llms-txt` — the headers CiteCue's *Verify installation* button probes for.
 
 ## Setup
@@ -204,7 +206,9 @@ With WooCommerce active:
 | `citecue_serve_timeout` | filter | Delivery API timeout on the serving path (default 3 s) |
 | `citecue_lookup_budget` | filter | Max delivery API lookups per minute across the crawler, llms.txt and metadata-refresh paths combined (default 120); beyond it, requests are answered from cache or passed through |
 | `citecue_should_inject_seo_head` | filter | Veto SEO head injection for a specific page |
-| `citecue_seo_head_tags` | filter | Change the head tags about to be printed, after the gap-fill — the escape hatch for letting CiteCue win a slot your SEO plugin owns |
+| `citecue_seo_head_tags` | filter | Change the head tags about to be printed, after the gap-fill — the escape hatch for letting CiteCue win a slot your SEO plugin owns. Output is printed unescaped, so a filter that adds markup owns escaping it |
+| `citecue_seo_head_query_vars` | filter | Query variables kept in the metadata lookup URL (defaults to the site's public query vars); anything else is stripped before caching, scheduling or sending |
+| `citecue_seo_head_schedule_budget` | filter | Max metadata refreshes queued per minute (default 20) |
 | `citecue_ingest_postarr` | filter | Adjust the post array before insert/update |
 | `citecue_ingest_rate_limit` | filter | Ingest requests allowed per hour (default 120) |
 | `citecue_output_meta_description` | filter | Control the meta-description tag for pushed content |
@@ -213,7 +217,7 @@ With WooCommerce active:
 
 The delivery API is never called while a human is waiting. For an AI-crawler request or `/llms.txt` the call is on the request path, because only a bot is blocked by it. For enriched metadata it is on WP-Cron: the render path reads one transient, and a miss queues the fetch rather than making it.
 
-A human page view with metadata switched off does no HTTP, no extra database query and no cache lookup — the middleware returns as soon as the User-Agent fails to match, having done nothing but a substring scan over the crawler tokens (which travel in an autoloaded option WordPress has already read). With it switched on, the added cost is one transient read, plus — only when there is something to print — an output buffer over `wp_head` and a regex pass across it.
+A human page view with metadata switched off does no HTTP, no extra database query and no cache lookup — the middleware returns as soon as the User-Agent fails to match, having done nothing but a substring scan over the crawler tokens (which travel in an autoloaded option WordPress has already read). With it switched on, the added cost is one transient read, plus — only when there is something to print — an output buffer held from `template_redirect` to the end of `wp_head` (so it closes within the first few kilobytes of the page, not at the end of it) and a parse of the head it captured.
 
 For a crawler request the cost is one API call, with a 3 s timeout, and only when the local cache cannot answer: optimized bodies are cached for 24 h and revalidated with an ETag, misses are negative-cached for 60 s, and llms.txt is treated as fresh for 5 minutes. A repeat crawl of a cached page is a 304, not a re-download.
 

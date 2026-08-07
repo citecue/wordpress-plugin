@@ -57,6 +57,46 @@ class Test_Citecue_Woocommerce_Exclusions extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The metadata injector must skip the same store pages, and has a sharper
+	 * reason to than the proxy: an order-received or account URL carries order
+	 * ids, `wc_order_*` keys and account tokens, and this path would put the
+	 * URL in a cron argument and then send it to CiteCue.
+	 *
+	 * @dataProvider provide_store_pages
+	 *
+	 * @param string $page Stubbed WooCommerce page.
+	 * @return void
+	 */
+	public function test_store_pages_are_never_enriched( $page ) {
+		$this->requires_stub();
+
+		$this->fake_visitor_request( '/checkout/order-received/42/?key=wc_order_secret' );
+		Citecue_Woocommerce_Stub::pretend( $page );
+
+		$decision = $this->seo_head()->decide();
+
+		$this->assertFalse( $decision['inject'] );
+		$this->assertSame( 'not-eligible', $decision['reason'] );
+		$this->assertSame( 0, $this->http->count() );
+		$this->assertSame( array(), _get_cron_array() ? array_filter( _get_cron_array(), static fn( $events ) => isset( $events[ Citecue_Seo_Head::REFRESH_HOOK ] ) ) : array() );
+	}
+
+	/**
+	 * Even off a store page, an order key riding in the query string is not
+	 * something to hand a third party.
+	 *
+	 * @return void
+	 */
+	public function test_an_order_key_never_reaches_the_lookup_url() {
+		$this->fake_visitor_request( '/a-product/?key=wc_order_secret&order_id=42' );
+
+		$url = Citecue_Seo_Head::lookup_url();
+
+		$this->assertStringNotContainsString( 'wc_order_secret', $url );
+		$this->assertStringNotContainsString( 'order_id', $url );
+	}
+
+	/**
 	 * `?add-to-cart=` mutates the cart, so it is not a page view at all.
 	 *
 	 * @return void

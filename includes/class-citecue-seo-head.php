@@ -12,23 +12,35 @@
  * content-parity and additive, so adding it is not cloaking, whereas serving a
  * rewritten document to a human would be.
  *
- * Two rules govern everything below.
+ * Four rules govern everything below.
  *
  * **Never emit a duplicate.** WordPress core prints `<title>` and
  * `<link rel="canonical">` on its own, and Yoast, Rank Math, AIOSEO, SEOPress,
  * The SEO Framework, Slim SEO and Jetpack each print some combination of
  * title, description, OpenGraph and JSON-LD. A second `<title>` is invalid
  * HTML and a second canonical makes Google pick one arbitrarily — so this
- * fills gaps only: it captures what the rest of `wp_head` actually printed and
- * drops every CiteCue tag whose slot is already taken. Detecting emitted
- * markup rather than sniffing for `WPSEO_VERSION` is what makes that correct
- * against SEO plugins and themes nobody here has heard of.
+ * fills gaps only: it captures the rendered `<head>` and drops every CiteCue
+ * tag whose slot is already taken. Detecting emitted markup rather than
+ * sniffing for `WPSEO_VERSION` is what makes that correct against SEO plugins
+ * and themes nobody here has heard of.
  *
  * **Never block a human.** The proxy may spend a request budget on an outbound
  * call because only a bot is waiting. Here a real visitor is, so the render
  * path reads the transient cache and nothing else: a miss injects nothing and
  * schedules a background refresh, so the next visitor gets the block. Cold
  * pages cost one un-enriched view, never one slow one.
+ *
+ * **Never print markup we did not build.** The block is trusted content for
+ * this site's own head, but it arrives over the network and lands in a human's
+ * browser. Nothing from the response is echoed: every tag is parsed, checked
+ * against an allowlist of shapes, and rebuilt from escaped values. A regex
+ * that merely *inspects* remote markup is one quoted attribute away from
+ * authorizing something it misread (PR #10 review) — rebuilding cannot be.
+ *
+ * **Never let a visitor grow the queue.** The URL asked about is the request's
+ * own, minus every query argument WordPress does not recognize, and scheduling
+ * is capped per minute. Without both, `/?x=<random>` — which resolves to the
+ * homepage — would mint an unbounded number of cache keys and cron events.
  *
  * @package Citecue
  */
@@ -52,23 +64,29 @@ class Citecue_Seo_Head {
 	const REFRESH_LOCK_TTL = MINUTE_IN_SECONDS;
 
 	/**
-	 * `wp_head` priority the output capture opens at. Below every priority in
-	 * practical use — core's `_wp_render_title_tag` is 1, `rel_canonical` 10,
-	 * and the SEO plugins cluster around 1 — so the capture sees all of it.
+	 * `template_redirect` priority the capture opens at. After the crawler
+	 * proxy and the llms.txt handler, which own priority 0 and both `exit`, so
+	 * a request either of them serves never opens a buffer here.
 	 */
-	const CAPTURE_START_PRIORITY = -PHP_INT_MAX;
+	const CAPTURE_START_PRIORITY = 1;
 
 	/** `wp_head` priority the capture closes and injects at: after everyone. */
 	const CAPTURE_END_PRIORITY = PHP_INT_MAX;
 
 	/**
-	 * `<link>` relations that may be injected. Anything else in the block is
-	 * dropped: the response is trusted markup for THIS site's head, but it
-	 * reaches a human's browser, so the set of things it may add is the small
-	 * set it needs (`stylesheet`, `preload` and friends have no business
-	 * arriving from a metadata endpoint).
+	 * `<link>` relations that may be injected, and `<meta>` values are escaped
+	 * into a tag we build ourselves. Anything else in the block is dropped:
+	 * `stylesheet`, `preload` and friends have no business arriving from a
+	 * metadata endpoint.
 	 */
 	const ALLOWED_LINK_RELS = array( 'canonical', 'alternate' );
+
+	/**
+	 * Query arguments kept when there is no `wp` object to ask. Only the
+	 * built-ins that actually select content on a plain-permalink install —
+	 * enough that such a site still gets its pages enriched.
+	 */
+	const FALLBACK_QUERY_VARS = array( 'p', 'page_id', 'cat', 'tag', 'name', 'pagename', 'post_type', 'paged', 'page', 'author_name', 'category_name', 'year', 'monthnum', 'day' );
 
 	/**
 	 * Plugin container.
@@ -110,14 +128,22 @@ class Citecue_Seo_Head {
 	 */
 	public function register() {
 		add_action( self::REFRESH_HOOK, array( $this, 'refresh' ), 10, 1 );
-		add_action( 'wp_head', array( $this, 'start_capture' ), self::CAPTURE_START_PRIORITY );
+		add_action( 'template_redirect', array( $this, 'start_capture' ), self::CAPTURE_START_PRIORITY );
 		add_action( 'wp_head', array( $this, 'finish_capture' ), self::CAPTURE_END_PRIORITY );
 	}
 
 	/**
 	 * Opens the capture, but only when there is something to inject — buffering
 	 * a page we will not touch is pure overhead, and every reason not to inject
-	 * is knowable before the first byte of `wp_head`.
+	 * is knowable before the theme renders a byte.
+	 *
+	 * Opened at `template_redirect` rather than at the start of `wp_head`
+	 * (PR #10 review): a theme that prints `<title>`, a canonical or its own
+	 * OpenGraph directly in `header.php` does so BEFORE `wp_head` runs, so a
+	 * capture scoped to the action would read those slots as empty and append
+	 * the duplicate the gap-fill exists to prevent. This is still not a
+	 * whole-page buffer — `wp_head` sits in `<head>`, so it closes within the
+	 * first few kilobytes.
 	 *
 	 * @return void
 	 */
@@ -134,8 +160,8 @@ class Citecue_Seo_Head {
 	}
 
 	/**
-	 * Closes the capture, re-emits everything the rest of `wp_head` printed,
-	 * and appends the CiteCue tags that found an empty slot.
+	 * Closes the capture, re-emits everything rendered so far, and appends the
+	 * CiteCue tags that found an empty slot.
 	 *
 	 * @return void
 	 */
@@ -149,23 +175,23 @@ class Citecue_Seo_Head {
 			return;
 		}
 
-		// Someone else's buffer is still open on top of ours (or ours was
-		// closed for us). Either way the levels no longer line up, so take the
-		// conservative exit: flush whatever we own so no output is lost or
-		// reordered, and inject nothing this request. A missing block is a
-		// non-event; mangled `<head>` output is not.
+		// Our buffer is no longer the top one: something opened another inside
+		// the head and has not closed it, or closed ours for us. Leave every
+		// buffer exactly as it is and inject nothing (PR #10 review). Unwinding
+		// down to ours would close a buffer this class did not create, and its
+		// owner's later ob_get_clean() would then take an unrelated one —
+		// breaking whatever minifier or cache opened it. Ours flushes with the
+		// rest at the end of the request, so no output is lost or reordered;
+		// only the tags are skipped, which is a non-event.
 		if ( ob_get_level() !== $level ) {
-			while ( ob_get_level() >= $level && ob_get_level() > 0 ) {
-				ob_end_flush();
-			}
 			return;
 		}
 
 		$head = (string) ob_get_clean();
 		$tags = self::merge( $head, $decision['block'] );
 
-		// Everything the rest of wp_head printed, verbatim — this is other
-		// plugins' and core's own output passing straight back through.
+		// Everything rendered so far, verbatim — the theme's own markup and
+		// other plugins' `wp_head` output passing straight back through.
 		echo $head; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 
 		if ( ! $tags ) {
@@ -173,9 +199,8 @@ class Citecue_Seo_Head {
 		}
 
 		echo "\n<!-- CiteCue -->\n";
-		// Head-only markup generated by CiteCue for this site's own page, and
-		// narrowed to an allowlist of tag shapes by self::slot_for() — output
-		// verbatim by design (escaping would destroy the markup).
+		// Built by self::rebuild_tag() out of escaped values — never a string
+		// from the response — so this is our own markup, not remote markup.
 		echo implode( "\n", $tags ) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
@@ -195,7 +220,7 @@ class Citecue_Seo_Head {
 			return self::skip( 'not-eligible' );
 		}
 
-		$url = Citecue_Plugin::current_url();
+		$url = self::lookup_url();
 		if ( '' === $url ) {
 			return self::skip( 'no-url' );
 		}
@@ -204,7 +229,7 @@ class Citecue_Seo_Head {
 		 * Filters whether to inject CiteCue's SEO head into this page.
 		 *
 		 * @param bool   $should_inject Default true.
-		 * @param string $url           Absolute request URL.
+		 * @param string $url           URL the block is looked up by.
 		 */
 		if ( ! apply_filters( 'citecue_should_inject_seo_head', true, $url ) ) {
 			return self::skip( 'vetoed' );
@@ -303,6 +328,76 @@ class Citecue_Seo_Head {
 	}
 
 	/**
+	 * The URL this request's block is looked up by: the request's own, minus
+	 * every query argument WordPress does not recognize as a query variable.
+	 *
+	 * Dropping the rest is not tidiness (PR #10 review). `/?x=<random>` still
+	 * resolves to the homepage, so keeping the raw query string would let an
+	 * anonymous visitor mint unlimited distinct cache keys and cron arguments
+	 * for one page; and a query string can carry things that must never be
+	 * sent to a third party — a password-reset token, a WooCommerce order key,
+	 * a nonce. What survives is the set that actually selects content, which is
+	 * exactly what CiteCue could have an enriched page for.
+	 *
+	 * @return string
+	 */
+	public static function lookup_url() {
+		$url = Citecue_Plugin::current_url();
+		if ( '' === $url ) {
+			return '';
+		}
+
+		$query = (string) wp_parse_url( $url, PHP_URL_QUERY );
+		if ( '' === $query ) {
+			return $url;
+		}
+
+		$pairs = array();
+		parse_str( $query, $pairs );
+
+		$allowed = self::allowed_query_vars();
+		$drop    = array();
+		foreach ( array_keys( $pairs ) as $key ) {
+			if ( ! in_array( (string) $key, $allowed, true ) ) {
+				$drop[] = (string) $key;
+			}
+		}
+
+		return $drop ? (string) remove_query_arg( $drop, $url ) : $url;
+	}
+
+	/**
+	 * Query variable names that may survive into the lookup URL.
+	 *
+	 * Taken from the live `WP` object, so a custom post type or a plugin that
+	 * registers its own public query variable keeps working without this
+	 * needing to know about it. Falls back to the built-ins when there is no
+	 * `WP` object (WP-Cron, WP-CLI, a unit test calling this directly).
+	 *
+	 * @return string[]
+	 */
+	private static function allowed_query_vars() {
+		$wp = isset( $GLOBALS['wp'] ) ? $GLOBALS['wp'] : null;
+
+		$vars = ( $wp instanceof WP && ! empty( $wp->public_query_vars ) )
+			? $wp->public_query_vars
+			: self::FALLBACK_QUERY_VARS;
+
+		/**
+		 * Filters the query variables kept in the SEO head lookup URL.
+		 *
+		 * Anything not listed is stripped before the URL is cached, scheduled
+		 * or sent to CiteCue. Add to it only for a variable that genuinely
+		 * selects different content, and never for one that carries a token.
+		 *
+		 * @param string[] $vars Allowed query variable names.
+		 */
+		$vars = apply_filters( 'citecue_seo_head_query_vars', $vars );
+
+		return is_array( $vars ) ? array_map( 'strval', $vars ) : array();
+	}
+
+	/**
 	 * The CiteCue tags that may be added to a head that already contains
 	 * `$existing`: every tag whose slot — the title, the canonical, one meta
 	 * name/property, JSON-LD as a whole — nothing else has claimed.
@@ -311,23 +406,27 @@ class Citecue_Seo_Head {
 	 * with every other SEO plugin on the site, and it is worth being able to
 	 * test it against a real Yoast head dump without a request in sight.
 	 *
-	 * @param string $existing Markup the rest of wp_head printed.
+	 * @param string $existing Rendered head markup.
 	 * @param string $block    CiteCue's head block.
-	 * @return string[] Tags to append, in the order CiteCue sent them.
+	 * @return string[] Rebuilt tags to append, in the order CiteCue sent them.
 	 */
 	public static function merge( $existing, $block ) {
 		$occupied = self::slots_in( $existing );
 		$tags     = array();
 
 		foreach ( self::tags_in( $block ) as $tag ) {
-			$slot = self::slot_for( $tag );
-			if ( '' === $slot || isset( $occupied[ $slot ] ) ) {
+			$rebuilt = self::rebuild_tag( $tag );
+			if ( null === $rebuilt ) {
+				continue;
+			}
+			list( $slot, $html ) = $rebuilt;
+			if ( isset( $occupied[ $slot ] ) ) {
 				continue;
 			}
 			// Claim it here too, so a block that somehow carries two canonicals
 			// cannot contribute both.
 			$occupied[ $slot ] = true;
-			$tags[]            = $tag;
+			$tags[]            = $html;
 		}
 
 		/**
@@ -335,11 +434,13 @@ class Citecue_Seo_Head {
 		 *
 		 * The default policy is gap-filling: a tag whose slot another plugin
 		 * has already filled is dropped. Use this to re-add one (having removed
-		 * the other plugin's copy yourself) or to drop more.
+		 * the other plugin's copy yourself) or to drop more. Whatever is
+		 * returned is printed unescaped, so a filter that adds markup owns
+		 * escaping it.
 		 *
 		 * @param string[] $tags     Tags that survived the gap-fill.
 		 * @param string   $block    The full block CiteCue returned.
-		 * @param string   $existing Markup the rest of wp_head printed.
+		 * @param string   $existing Rendered head markup.
 		 */
 		$tags = apply_filters( 'citecue_seo_head_tags', $tags, $block, $existing );
 
@@ -358,7 +459,7 @@ class Citecue_Seo_Head {
 	}
 
 	/**
-	 * The slots occupied by existing head markup.
+	 * The slots occupied by markup already in the head.
 	 *
 	 * @param string $html Head markup.
 	 * @return array<string,bool>
@@ -366,7 +467,7 @@ class Citecue_Seo_Head {
 	private static function slots_in( $html ) {
 		$slots = array();
 		foreach ( self::tags_in( $html ) as $tag ) {
-			$slot = self::slot_for( $tag, true );
+			$slot = self::slot_for( $tag );
 			if ( '' !== $slot ) {
 				$slots[ $slot ] = true;
 			}
@@ -375,86 +476,195 @@ class Citecue_Seo_Head {
 	}
 
 	/**
-	 * The slot one element claims, or '' for an element that claims none.
+	 * The slot one existing element claims, or '' for one that claims none.
 	 *
-	 * Reading the same element two ways on purpose. Scanning what other plugins
-	 * printed ($lenient) only asks "is this slot taken", so any `<link>` rel and
-	 * any `<script>` type answers for itself. Deciding what CiteCue may PRINT
-	 * applies the allowlists: only `application/ld+json` scripts, only the link
-	 * relations in ALLOWED_LINK_RELS, and only meta tags that identify
-	 * themselves with a name or property. Everything else returns '' and is
-	 * dropped — the endpoint has never sent anything else, and the tags land in
-	 * a human's browser, so "recognized shapes only" is the right posture for
-	 * markup arriving over the network.
+	 * Only asks "is this slot taken", so any `<link>` relation counts and any
+	 * `<script>` that is not structured data counts for nothing — a site with
+	 * an analytics snippet in its head must not lose CiteCue's schema to it.
+	 * Deciding what may be PRINTED is a different and much stricter question,
+	 * answered by {@see self::rebuild_tag()}.
 	 *
-	 * @param string $tag     One element.
-	 * @param bool   $lenient Whether to classify rather than authorize.
+	 * @param string $tag One element.
 	 * @return string
 	 */
-	private static function slot_for( $tag, $lenient = false ) {
+	private static function slot_for( $tag ) {
 		if ( preg_match( '#^<title\b#i', $tag ) ) {
 			return 'title';
 		}
 
-		// A plain `<script>` occupies nothing and may never be printed: only
-		// structured data collides with structured data, and a metadata
-		// endpoint has no business shipping executable code either way. The one
-		// rule covers both readings.
+		$attributes = self::attributes( $tag );
+
 		if ( preg_match( '#^<script\b#i', $tag ) ) {
-			return preg_match( '#\btype\s*=\s*["\']?application/ld\+json#i', $tag ) ? 'jsonld' : '';
+			$type = isset( $attributes['type'] ) ? strtolower( $attributes['type'] ) : '';
+			return 'application/ld+json' === $type ? 'jsonld' : '';
 		}
 
 		if ( preg_match( '#^<link\b#i', $tag ) ) {
-			$rel = self::attribute( $tag, 'rel' );
-			if ( '' === $rel ) {
-				return '';
-			}
-			$rel = strtolower( $rel );
-			if ( ! $lenient && ! in_array( $rel, self::ALLOWED_LINK_RELS, true ) ) {
-				return '';
-			}
-			return 'link:' . $rel;
+			$rel = isset( $attributes['rel'] ) ? strtolower( trim( $attributes['rel'] ) ) : '';
+			return '' !== $rel ? 'link:' . $rel : '';
 		}
 
 		if ( preg_match( '#^<meta\b#i', $tag ) ) {
-			$key = self::attribute( $tag, 'property' );
-			if ( '' === $key ) {
-				$key = self::attribute( $tag, 'name' );
+			$key = '';
+			if ( isset( $attributes['property'] ) && '' !== $attributes['property'] ) {
+				$key = $attributes['property'];
+			} elseif ( isset( $attributes['name'] ) ) {
+				$key = $attributes['name'];
 			}
-			if ( '' === $key || ! preg_match( '#^[A-Za-z0-9:_.-]+$#', $key ) ) {
-				return '';
-			}
-			return 'meta:' . strtolower( $key );
+			$key = trim( $key );
+			return '' !== $key ? 'meta:' . strtolower( $key ) : '';
 		}
 
 		return '';
 	}
 
 	/**
-	 * One attribute's value, or '' when absent.
+	 * One CiteCue tag, rebuilt from parsed and escaped values, as
+	 * `array(slot, html)` — or null when it is not a shape we print.
 	 *
-	 * @param string $tag  Element markup.
-	 * @param string $name Attribute name.
+	 * Rebuilding rather than passing the response's own markup through is the
+	 * point (PR #10 review). Inspecting remote markup with a regex and then
+	 * echoing it means one misread attribute is an executable tag on a real
+	 * visitor's page: `<link foo="a rel=canonical" rel="stylesheet"
+	 * onload="…">` reads as a canonical to a pattern searching for `rel=`, and
+	 * as a stylesheet with an event handler to the browser. Nothing survives
+	 * this function that it did not itself write, so there is no such gap to
+	 * find — every attribute other than the ones named below is discarded, and
+	 * `href` is limited to http/https.
+	 *
+	 * @param string $tag One element from CiteCue's block.
+	 * @return array{0:string,1:string}|null
+	 */
+	private static function rebuild_tag( $tag ) {
+		if ( preg_match( '#^<title\b[^>]*>(.*)</title>$#is', $tag, $match ) ) {
+			$text = self::text( $match[1] );
+			return '' === $text ? null : array( 'title', '<title data-citecue="title">' . esc_html( $text ) . '</title>' );
+		}
+
+		$attributes = self::attributes( $tag );
+
+		if ( preg_match( '#^<script\b#i', $tag ) ) {
+			$type = isset( $attributes['type'] ) ? strtolower( trim( $attributes['type'] ) ) : '';
+			if ( 'application/ld+json' !== $type || ! preg_match( '#^<script\b[^>]*>(.*)</script>$#is', $tag, $match ) ) {
+				return null;
+			}
+			$data = json_decode( trim( $match[1] ), true );
+			if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $data ) ) {
+				return null;
+			}
+			// JSON_HEX_TAG is what makes this safe inside a script element: it
+			// renders every angle bracket as a < / > escape, so a
+			// closing script tag buried in a string value cannot end the
+			// element early. Re-encoding from the decoded data, rather than
+			// passing the original text through, is what guarantees there is
+			// nothing else in there either.
+			$json = wp_json_encode( $data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE );
+			return ( false === $json || '' === $json )
+				? null
+				: array( 'jsonld', '<script data-citecue="jsonld" type="application/ld+json">' . $json . '</script>' );
+		}
+
+		if ( preg_match( '#^<link\b#i', $tag ) ) {
+			$rel = isset( $attributes['rel'] ) ? strtolower( trim( $attributes['rel'] ) ) : '';
+			if ( ! in_array( $rel, self::ALLOWED_LINK_RELS, true ) ) {
+				return null;
+			}
+			$href = isset( $attributes['href'] ) ? esc_url_raw( self::text( $attributes['href'] ), array( 'http', 'https' ) ) : '';
+			if ( '' === $href ) {
+				return null;
+			}
+			$html = '<link data-citecue="' . esc_attr( $rel ) . '" rel="' . esc_attr( $rel ) . '" href="' . esc_url( $href ) . '"';
+			// The one extra attribute an `alternate` link needs to mean
+			// anything, and only in a shape that cannot be anything else.
+			if ( isset( $attributes['hreflang'] ) && preg_match( '#^[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*$#', trim( $attributes['hreflang'] ) ) ) {
+				$html .= ' hreflang="' . esc_attr( trim( $attributes['hreflang'] ) ) . '"';
+			}
+			return array( 'link:' . $rel, $html . ' />' );
+		}
+
+		if ( preg_match( '#^<meta\b#i', $tag ) ) {
+			$is_property = isset( $attributes['property'] ) && '' !== trim( $attributes['property'] );
+			$key         = $is_property ? trim( $attributes['property'] ) : trim( isset( $attributes['name'] ) ? $attributes['name'] : '' );
+			if ( '' === $key || ! preg_match( '#^[A-Za-z0-9:_.-]+$#', $key ) ) {
+				return null;
+			}
+			$content = self::text( isset( $attributes['content'] ) ? $attributes['content'] : '' );
+			if ( '' === $content ) {
+				return null;
+			}
+			$html = '<meta data-citecue="' . esc_attr( strtolower( $key ) ) . '" '
+				. ( $is_property ? 'property' : 'name' ) . '="' . esc_attr( $key ) . '"'
+				. ' content="' . esc_attr( $content ) . '" />';
+			return array( 'meta:' . strtolower( $key ), $html );
+		}
+
+		return null;
+	}
+
+	/**
+	 * An attribute value or element body as plain text, ready to be escaped
+	 * back out. Decoded first: the value arrives HTML-encoded, so escaping it
+	 * as-is would turn `&amp;` into `&amp;amp;` on the page.
+	 *
+	 * @param string $raw Encoded value.
 	 * @return string
 	 */
-	private static function attribute( $tag, $name ) {
-		$pattern = '#\b' . preg_quote( $name, '#' ) . '\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'>]+))#i';
-		if ( ! preg_match( $pattern, $tag, $match ) ) {
-			return '';
-		}
-		foreach ( array( 1, 2, 3 ) as $group ) {
-			if ( isset( $match[ $group ] ) && '' !== $match[ $group ] ) {
-				return trim( $match[ $group ] );
-			}
-		}
-		return '';
+	private static function text( $raw ) {
+		return trim( html_entity_decode( wp_strip_all_tags( (string) $raw ), ENT_QUOTES, 'UTF-8' ) );
 	}
 
 	/**
-	 * Queues one background fetch for a URL, at most once a minute however many
-	 * visitors arrive in the meantime.
+	 * An element's attributes, lowercased names to unquoted values.
 	 *
-	 * @param string $url Absolute page URL.
+	 * Walks name/value pairs left to right rather than searching for one
+	 * attribute at a time, which is the difference between reading markup and
+	 * guessing at it: a search for `rel=` finds it inside `foo="a rel=x"`,
+	 * whereas a scan that consumes each quoted value as part of its own pair
+	 * cannot. First occurrence wins, matching how browsers resolve a repeated
+	 * attribute.
+	 *
+	 * @param string $tag One element.
+	 * @return array<string,string>
+	 */
+	private static function attributes( $tag ) {
+		$out = array();
+
+		if ( ! preg_match( '#^<[a-zA-Z][a-zA-Z0-9]*([^>]*)>#', (string) $tag, $match ) ) {
+			return $out;
+		}
+
+		$pattern = '#([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*(?:=\s*("[^"]*"|\'[^\']*\'|[^\s"\'>]+))?#';
+		if ( ! preg_match_all( $pattern, $match[1], $found, PREG_SET_ORDER ) ) {
+			return $out;
+		}
+
+		foreach ( $found as $pair ) {
+			$name = strtolower( $pair[1] );
+			if ( isset( $out[ $name ] ) ) {
+				continue;
+			}
+			$value = isset( $pair[2] ) ? $pair[2] : '';
+			if ( '' !== $value && ( '"' === $value[0] || "'" === $value[0] ) ) {
+				$value = substr( $value, 1, -1 );
+			}
+			$out[ $name ] = $value;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Queues one background fetch for a URL, at most once a minute per URL and
+	 * within a site-wide per-minute ceiling.
+	 *
+	 * The per-URL lock alone does not bound anything (PR #10 review): distinct
+	 * URLs take distinct locks, and the outbound lookup budget is only spent
+	 * when a job RUNS, so without a ceiling here an anonymous visitor could
+	 * push unlimited events into WordPress's serialized cron option and make
+	 * every subsequent write more expensive. `lookup_url()` removes most of the
+	 * ways to mint a distinct URL; this bounds what is left.
+	 *
+	 * @param string $url Lookup URL.
 	 * @return void
 	 */
 	private function schedule_refresh( $url ) {
@@ -462,6 +672,11 @@ class Citecue_Seo_Head {
 		if ( get_transient( $lock ) ) {
 			return;
 		}
+
+		if ( ! $this->plugin->cache->consume_seo_head_schedule_budget() ) {
+			return;
+		}
+
 		set_transient( $lock, 1, self::REFRESH_LOCK_TTL );
 
 		wp_schedule_single_event( time(), self::REFRESH_HOOK, array( $url ) );
@@ -494,6 +709,18 @@ class Citecue_Seo_Head {
 			return false;
 		}
 		if ( function_exists( 'is_favicon' ) && is_favicon() ) {
+			return false;
+		}
+		// The same store pages the crawler proxy refuses to touch, for a reason
+		// that applies twice over here (PR #10 review): those URLs carry order
+		// ids, `wc_order_*` keys and account tokens, and this path would put
+		// the URL in a cron argument and then send it to CiteCue.
+		if ( Citecue_Plugin::is_woocommerce_request() ) {
+			return false;
+		}
+		// Content behind a password is not content CiteCue has, and its
+		// metadata should not describe what a visitor cannot read.
+		if ( is_singular() && post_password_required() ) {
 			return false;
 		}
 		return true;

@@ -176,6 +176,69 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
+	 * `/?x=<random>` still renders the homepage, so a raw request URL would let
+	 * an anonymous visitor mint unlimited cache keys and cron arguments for one
+	 * page. Unrecognized query arguments are stripped before any of that.
+	 *
+	 * @return void
+	 */
+	public function test_unknown_query_arguments_never_reach_the_lookup_url() {
+		$this->configure_delivery();
+		$this->fake_visitor_request( '/?x=abcdef&utm_source=news' );
+
+		$url = Citecue_Seo_Head::lookup_url();
+
+		$this->assertStringNotContainsString( 'x=abcdef', $url );
+		$this->assertStringNotContainsString( 'utm_source', $url );
+	}
+
+	/**
+	 * Stripping must not break a plain-permalink site, where the query string
+	 * is how a page is addressed at all.
+	 *
+	 * @return void
+	 */
+	public function test_recognized_query_arguments_survive() {
+		$this->configure_delivery();
+		$post_id = self::factory()->post->create( array( 'post_status' => 'publish' ) );
+		$this->fake_visitor_request( '/?p=' . $post_id . '&sessiontoken=secret' );
+
+		$url = Citecue_Seo_Head::lookup_url();
+
+		$this->assertStringContainsString( 'p=' . $post_id, $url );
+		$this->assertStringNotContainsString( 'sessiontoken', $url );
+	}
+
+	/**
+	 * A burst of unique URLs cannot push unlimited events into WordPress's
+	 * serialized cron option: the per-URL lock does not bound distinct URLs,
+	 * and the outbound budget is only spent when a job runs.
+	 *
+	 * @return void
+	 */
+	public function test_scheduling_is_capped_per_minute() {
+		$this->configure_delivery();
+		add_filter( 'citecue_seo_head_schedule_budget', static fn() => 3 );
+
+		// Real posts, each a distinct eligible URL: a nonexistent id is a 404,
+		// which the injector declines before it ever reaches scheduling.
+		$injector = $this->seo_head();
+		foreach ( self::factory()->post->create_many( 8, array( 'post_status' => 'publish' ) ) as $post_id ) {
+			$this->fake_visitor_request( '/?p=' . $post_id );
+			$injector->decide();
+		}
+
+		$jobs = 0;
+		foreach ( (array) _get_cron_array() as $events ) {
+			if ( isset( $events[ Citecue_Seo_Head::REFRESH_HOOK ] ) ) {
+				$jobs += count( $events[ Citecue_Seo_Head::REFRESH_HOOK ] );
+			}
+		}
+
+		$this->assertSame( 3, $jobs );
+	}
+
+	/**
 	 * The background worker stores what CiteCue returns.
 	 *
 	 * @return void
@@ -326,6 +389,72 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 		$this->assertStringNotContainsString( 'CiteCue title', $output );
 		$this->assertStringContainsString( 'og:title', $output );
 		$this->assertSame( 1, substr_count( $output, '<title' ) );
+	}
+
+	/**
+	 * A theme that prints its own `<title>` in header.php does so before
+	 * `wp_head` runs. The capture opens at `template_redirect` precisely so
+	 * that markup is still seen — scoped to the action, this would append a
+	 * second title.
+	 *
+	 * @return void
+	 */
+	public function test_theme_markup_printed_before_wp_head_still_claims_its_slot() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head(
+			$url,
+			'<title data-citecue="title">CiteCue title</title>'
+				. '<meta data-citecue="og" property="og:title" content="Acme" />'
+		);
+
+		$injector = $this->seo_head();
+
+		ob_start();
+		$injector->start_capture();
+		echo '<!DOCTYPE html><html><head><title>Printed by header.php</title>';
+		$injector->finish_capture();
+		$output = ob_get_clean();
+
+		$this->assertSame( 1, substr_count( $output, '<title' ) );
+		$this->assertStringNotContainsString( 'CiteCue title', $output );
+		$this->assertStringContainsString( 'og:title', $output );
+	}
+
+	/**
+	 * Another plugin's buffer left open across the end of wp_head must be left
+	 * exactly where it is. Unwinding to reach ours would close a buffer this
+	 * class did not create, and its owner's later ob_get_clean() would then
+	 * take an unrelated one.
+	 *
+	 * @return void
+	 */
+	public function test_a_foreign_buffer_is_never_unwound() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+
+		$injector = $this->seo_head();
+
+		ob_start();
+		$injector->start_capture();
+		echo '<title>Theme</title>';
+
+		// Somebody else opens one and does not close it before wp_head ends.
+		ob_start();
+		$foreign_level = ob_get_level();
+		echo 'foreign';
+
+		$injector->finish_capture();
+
+		$this->assertSame( $foreign_level, ob_get_level(), 'finish_capture() must not close a buffer it did not open.' );
+		$this->assertSame( 'foreign', ob_get_clean() );
+
+		$output = ob_get_clean();
+		$this->assertSame( '<title>Theme</title>', $output );
+		$this->assertStringNotContainsString( 'og:title', $output );
+
+		ob_end_clean();
 	}
 
 	/**

@@ -46,7 +46,9 @@ The service is reached at `https://app.citecue.com` (or the origin you pin with 
 
 **Serving a page to an AI crawler** — on each request from a matched AI crawler, and never for a human visitor or a logged-in user. The plugin sends the requested URL, the matched crawler's User-Agent token and the site's project key to `/api/delivery/v2/page`. No visitor data — no IP address, no cookies, no personal data — is sent. CiteCue records the crawler hit so it can report it back to you. Responses are cached, misses are remembered for a minute, and a per-minute budget caps the total.
 
-**Enriching a page's metadata** — in the background, on WP-Cron, for a URL a visitor has requested while enriched metadata is switched on. The requested URL and the site's project key are sent to `/api/delivery/v2/seo-head`. No visitor data — no IP address, no cookies, no personal data — is sent, and this never happens while a visitor is waiting: a page with no cached block yet is rendered untouched and the fetch is queued for afterwards. Responses are cached, empty answers are remembered for a minute, and the same per-minute budget caps the total.
+**Enriching a page's metadata** — in the background, on WP-Cron, for a URL a visitor has requested while enriched metadata is switched on. The requested URL and the site's project key are sent to `/api/delivery/v2/seo-head`. No visitor data — no IP address, no cookies, no personal data — is sent, and this never happens while a visitor is waiting: a page with no cached block yet is rendered untouched and the fetch is queued for afterwards.
+
+Before a URL is cached, queued or sent, every query argument WordPress does not recognise as a query variable is removed from it, so tokens, order keys and nonces that happen to be in the address are never included. WooCommerce cart, checkout, account and order pages are skipped entirely. Responses are cached, empty answers are remembered for a minute, the same per-minute budget caps outbound calls, and a second per-minute cap limits how many refreshes a burst of traffic can queue.
 
 **Serving llms.txt** — when `/llms.txt` is requested and the feature is on. The site's project key is sent to `/api/delivery/v2/llms.txt`. The response is cached.
 
@@ -119,7 +121,10 @@ The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploadin
 * Fills gaps only: anything WordPress, your theme or your SEO plugin already prints is left untouched, so the plugin never emits a second title or canonical. Detection reads the real `<head>` output rather than looking for particular plugins.
 * Never delays a page: the render path reads cache only. A URL with nothing cached yet renders untouched and the fetch is queued for afterwards. Cached blocks survive a CiteCue outage and are served while a refresh runs.
 * The connection now tells CiteCue whether this site injects metadata, so CiteCue stops reporting fixes as reaching human visitors when nothing puts them on the page. Sites connected before this release are asked to reconnect once.
-* New filters: `citecue_should_inject_seo_head` (skip a page) and `citecue_seo_head_tags` (change what is printed).
+* Nothing from the response is printed as it arrived: every tag is parsed, checked against an allowlist of shapes and rebuilt from escaped values, with structured data re-encoded so it cannot escape its own script element.
+* Query arguments WordPress does not recognise are stripped from the URL before it is cached, queued or sent, and store pages are skipped — so order keys, reset tokens and nonces are never included, and a visitor cannot fill the scheduler with unique addresses for one page.
+* Changing the selected CiteCue project now clears the delivery cache, instead of serving the previous project's pages, llms.txt and metadata under the new one for up to a day.
+* New filters: `citecue_should_inject_seo_head` (skip a page), `citecue_seo_head_tags` (change what is printed), `citecue_seo_head_query_vars` and `citecue_seo_head_schedule_budget`.
 
 = 1.0.3 =
 * No functional change. Annotates the DONOTCACHEPAGE definitions so code-quality tooling stops reporting a naming-convention violation the constant cannot avoid — page caches look for that exact name.

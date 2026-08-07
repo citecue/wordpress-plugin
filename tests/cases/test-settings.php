@@ -178,6 +178,43 @@ class Test_Citecue_Settings extends Citecue_Test_Case {
 	}
 
 	/**
+	 * Cached bodies, llms.txt and head blocks all key off the cache salt and
+	 * the URL, and NOT off the project — so repointing the site at another
+	 * CiteCue project would keep serving the previous project's content under
+	 * the new one's name, onto live pages, for up to a day.
+	 *
+	 * @return void
+	 */
+	public function test_changing_the_project_flushes_every_cache() {
+		$url = home_url( '/hello-world/' );
+		$this->settings->update( array( 'public_key' => 'pk_old' ) );
+		$this->plugin->cache->set_page( $url, '<html>old project</html>', '"v1"', 'enriched' );
+		$this->plugin->cache->set_seo_head( $url, '<title>old project</title>' );
+		$this->plugin->cache->set_llms_txt( '# old project', '"v1"' );
+
+		$this->settings->sanitize( array( 'public_key' => 'pk_new' ) );
+
+		$this->assertNull( $this->plugin->cache->get_page( $url ) );
+		$this->assertNull( $this->plugin->cache->get_seo_head( $url ) );
+		$this->assertNull( $this->plugin->cache->get_llms_txt() );
+	}
+
+	/**
+	 * Re-saving the same project must not throw the site's whole cache away.
+	 *
+	 * @return void
+	 */
+	public function test_an_unchanged_project_keeps_the_cache() {
+		$url = home_url( '/hello-world/' );
+		$this->settings->update( array( 'public_key' => 'pk_same' ) );
+		$this->plugin->cache->set_seo_head( $url, '<title>still valid</title>' );
+
+		$this->settings->sanitize( array( 'public_key' => 'pk_same' ) );
+
+		$this->assertNotNull( $this->plugin->cache->get_seo_head( $url ) );
+	}
+
+	/**
 	 * Checkboxes are absent from the POST when unticked.
 	 *
 	 * @return void

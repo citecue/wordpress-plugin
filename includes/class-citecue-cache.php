@@ -277,6 +277,36 @@ class Citecue_Cache {
 	}
 
 	/**
+	 * Consumes one unit of the per-minute budget for QUEUEING a metadata
+	 * refresh, which is a different ceiling from the outbound-call one above
+	 * and needs to be (PR #10 review).
+	 *
+	 * `consume_lookup_budget()` is spent when a job RUNS, so it bounds what
+	 * reaches CiteCue and nothing else. Scheduling happens on the render path,
+	 * where an anonymous visitor decides how many distinct URLs to ask about —
+	 * and every scheduled event is a row in WordPress's serialized `cron`
+	 * option, which is rewritten in full on every change. Unbounded, that turns
+	 * page views into an ever more expensive database write. This caps it.
+	 *
+	 * @return bool Whether a refresh may be queued.
+	 */
+	public function consume_seo_head_schedule_budget() {
+		/**
+		 * Filters the maximum SEO head refreshes queued per minute.
+		 *
+		 * @param int $limit Default 20.
+		 */
+		$limit = max( 1, (int) apply_filters( 'citecue_seo_head_schedule_budget', 20 ) );
+		$key   = 'citecue_shb_' . (int) floor( time() / MINUTE_IN_SECONDS );
+		$count = (int) get_transient( $key );
+		if ( $count >= $limit ) {
+			return false;
+		}
+		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
+		return true;
+	}
+
+	/**
 	 * Cached llms.txt, or null.
 	 *
 	 * @return array{body:string,etag:string,cached_at:int}|null

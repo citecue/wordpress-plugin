@@ -176,6 +176,110 @@ class Test_Citecue_Seo_Head_Merge extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The reason nothing from the response is echoed: a pattern that merely
+	 * *searches* for `rel=` finds it inside another attribute's quoted value,
+	 * and would authorize a stylesheet with an event handler as a canonical.
+	 * Rebuilding from parsed attributes has no such gap.
+	 *
+	 * @return void
+	 */
+	public function test_a_rel_hidden_in_another_attribute_is_not_read_as_canonical() {
+		$block = '<link foo="a rel=canonical" rel="stylesheet" href="https://evil.example/x.css" onload="alert(1)" />'
+			. '<link data-rel="canonical" rel="stylesheet" href="https://evil.example/y.css" />';
+
+		$this->assertSame( array(), Citecue_Seo_Head::merge( '', $block ) );
+	}
+
+	/**
+	 * Even on a tag that legitimately claims a slot, only the attributes this
+	 * plugin writes come out the other side.
+	 *
+	 * @return void
+	 */
+	public function test_extra_attributes_never_survive_onto_the_page() {
+		$block = '<link rel="canonical" href="https://example.org/" onload="alert(1)" integrity="x" />'
+			. '<meta name="description" content="Acme" onmouseover="alert(1)" />';
+
+		$all = implode( "\n", Citecue_Seo_Head::merge( '', $block ) );
+
+		$this->assertStringNotContainsString( 'onload', $all );
+		$this->assertStringNotContainsString( 'onmouseover', $all );
+		$this->assertStringNotContainsString( 'integrity', $all );
+		$this->assertStringContainsString( 'https://example.org/', $all );
+		$this->assertStringContainsString( 'content="Acme"', $all );
+	}
+
+	/**
+	 * A canonical is a URL on the web, not a scheme that executes.
+	 *
+	 * @return void
+	 */
+	public function test_non_http_hrefs_are_dropped() {
+		$block = '<link rel="canonical" href="javascript:alert(1)" />';
+
+		$this->assertSame( array(), Citecue_Seo_Head::merge( '', $block ) );
+	}
+
+	/**
+	 * A literal closing script tag inside the JSON ends the element where it
+	 * appears, leaving JSON that no longer decodes — so the whole thing is
+	 * dropped, and the trailing script never becomes a tag of its own either.
+	 *
+	 * @return void
+	 */
+	public function test_a_script_smuggled_into_jsonld_yields_nothing() {
+		$block = '<script type="application/ld+json">'
+			. '{"@type":"Organization","name":"</script><script>alert(1)</script>"}'
+			. '</script>';
+
+		$this->assertSame( array(), Citecue_Seo_Head::merge( '', $block ) );
+	}
+
+	/**
+	 * JSON-LD is re-encoded from the decoded data with JSON_HEX_TAG, so an
+	 * angle bracket in a legitimate string value leaves as an escape rather
+	 * than as something a browser could act on.
+	 *
+	 * @return void
+	 */
+	public function test_jsonld_angle_brackets_leave_escaped() {
+		$block = '<script type="application/ld+json">{"@type":"Organization","name":"A < B"}</script>';
+
+		$tags = Citecue_Seo_Head::merge( '', $block );
+
+		$this->assertCount( 1, $tags );
+		$this->assertStringNotContainsString( 'A < B', $tags[0] );
+		$this->assertStringContainsString( '<', $tags[0] );
+		$this->assertSame( 1, substr_count( strtolower( $tags[0] ), '</script>' ) );
+		$this->assertStringContainsString( 'Organization', $tags[0] );
+	}
+
+	/**
+	 * Malformed JSON is not structured data, and printing it would put an
+	 * invalid block on the page for a search engine to choke on.
+	 *
+	 * @return void
+	 */
+	public function test_unparseable_jsonld_is_dropped() {
+		$this->assertSame( array(), Citecue_Seo_Head::merge( '', '<script type="application/ld+json">{not json</script>' ) );
+	}
+
+	/**
+	 * Values arrive HTML-encoded, so they must be decoded before being escaped
+	 * back out — otherwise an ampersand gains a new `amp;` on every pass.
+	 *
+	 * @return void
+	 */
+	public function test_encoded_values_are_not_double_escaped() {
+		$block = '<title data-citecue="title">Bar &amp; Grill</title>';
+
+		$tags = Citecue_Seo_Head::merge( '', $block );
+
+		$this->assertStringContainsString( 'Bar &amp; Grill', $tags[0] );
+		$this->assertStringNotContainsString( '&amp;amp;', $tags[0] );
+	}
+
+	/**
 	 * A block that somehow carries the same slot twice contributes it once.
 	 *
 	 * @return void
