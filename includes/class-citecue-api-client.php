@@ -6,6 +6,7 @@
  * (`Authorization: Bearer ck_live_…` + `X-Citecue-Channel: wordpress`):
  *   GET /api/delivery/v2/config    — org projects (connection test / selection)
  *   GET /api/delivery/v2/page      — optimized page for an AI crawler (ETag/304)
+ *   GET /api/delivery/v2/seo-head  — enriched head block for one URL (humans)
  *   GET /api/delivery/v2/llms.txt  — llms.txt body (ETag/304)
  * the public keyless registry feed:
  *   GET /api/delivery/v1/crawlers  — AI crawler UA token registry
@@ -143,7 +144,7 @@ class Citecue_Api_Client {
 	 * the ingest secret at somewhere other than the configured API base.
 	 *
 	 * @param string $code One-time code from the connect redirect.
-	 * @param array  $site {site_url, rest_url, ingest_secret, plugin_version, woocommerce}.
+	 * @param array  $site {site_url, rest_url, ingest_secret, plugin_version, woocommerce, seo_head}.
 	 * @return array|WP_Error {apiKey, publicKey, domain, ingest?}
 	 */
 	public function claim_connect_code( $code, array $site ) {
@@ -257,6 +258,47 @@ class Citecue_Api_Client {
 			'body'   => $result['body'],
 			'etag'   => isset( $response_headers['etag'] ) ? (string) $response_headers['etag'] : '',
 			'mode'   => isset( $response_headers['x-citecue-mode'] ) ? (string) $response_headers['x-citecue-mode'] : '',
+		);
+	}
+
+	/**
+	 * GET /api/delivery/v2/seo-head — the enriched head block for one URL.
+	 *
+	 * CiteCue has three distinct empty answers here and they are not
+	 * interchangeable, so they are passed up untouched rather than collapsed:
+	 * 204 means the project is fine but there is nothing to inject right now
+	 * (audience not `all`, or no enriched page for this URL), 404 is the same
+	 * "unknown key / disabled project / bad input" sentinel the page endpoint
+	 * uses, and 401 is a rejected key. A 204 carries no body at all.
+	 *
+	 * @param string $url Absolute URL of the page being rendered.
+	 * @return array|WP_Error {status:int, head:string}
+	 */
+	public function get_seo_head( $url ) {
+		$endpoint = add_query_arg(
+			array(
+				'k' => rawurlencode( (string) $this->settings->get( 'public_key' ) ),
+				'u' => rawurlencode( (string) $url ),
+			),
+			$this->settings->api_base() . '/api/delivery/v2/seo-head'
+		);
+
+		$result = $this->get( $endpoint, $this->auth_headers(), $this->serve_timeout() );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$head = '';
+		if ( 200 === $result['status'] ) {
+			$data = json_decode( $result['body'], true );
+			if ( is_array( $data ) && isset( $data['head'] ) && is_string( $data['head'] ) ) {
+				$head = $data['head'];
+			}
+		}
+
+		return array(
+			'status' => $result['status'],
+			'head'   => $head,
 		);
 	}
 

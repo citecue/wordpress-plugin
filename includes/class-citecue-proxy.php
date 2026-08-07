@@ -82,7 +82,7 @@ class Citecue_Proxy {
 			return self::pass( 'not-a-crawler' );
 		}
 
-		$url = $this->current_url();
+		$url = Citecue_Plugin::current_url();
 		if ( '' === $url ) {
 			return self::pass( 'no-url' );
 		}
@@ -294,25 +294,6 @@ class Citecue_Proxy {
 			return true;
 		}
 		return false;
-	}
-
-	/**
-	 * The absolute URL of the current request. CiteCue normalizes it
-	 * server-side (scheme/www/trailing-slash/tracking params).
-	 *
-	 * @return string
-	 */
-	private function current_url() {
-		if ( ! isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
-			return '';
-		}
-		$scheme = is_ssl() ? 'https' : 'http';
-		$host   = sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) );
-		// esc_url_raw(), not sanitize_text_field(): the latter deletes every
-		// percent-encoded sequence it finds, so /caf%C3%A9/ would reach CiteCue
-		// as /caf/ and be cached under the wrong key.
-		$uri = esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
-		return esc_url_raw( $scheme . '://' . $host . $uri );
 	}
 
 	/**

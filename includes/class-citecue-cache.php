@@ -201,6 +201,82 @@ class Citecue_Cache {
 	}
 
 	/**
+	 * Transient key for a URL's SEO head block. Keyed separately from the page
+	 * body: the two have different lifetimes and different eviction triggers —
+	 * a page can stop being injectable (audience switched off) while its
+	 * optimized body is still perfectly servable to crawlers.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return string
+	 */
+	private function seo_head_key( $url ) {
+		return 'citecue_sh_' . md5( $this->salt() . '|' . self::normalize_url( $url ) );
+	}
+
+	/**
+	 * Cached SEO head block for a URL, or null.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return array{block:string,cached_at:int}|null
+	 */
+	public function get_seo_head( $url ) {
+		$hit = get_transient( $this->seo_head_key( $url ) );
+		return ( is_array( $hit ) && isset( $hit['block'] ) ) ? $hit : null;
+	}
+
+	/**
+	 * Stores a URL's SEO head block.
+	 *
+	 * @param string $url   Absolute page URL.
+	 * @param string $block Head markup.
+	 * @return void
+	 */
+	public function set_seo_head( $url, $block ) {
+		set_transient(
+			$this->seo_head_key( $url ),
+			array(
+				'block'     => (string) $block,
+				'cached_at' => time(),
+			),
+			self::BODY_TTL
+		);
+	}
+
+	/**
+	 * Removes a cached SEO head block. Called whenever CiteCue says it has
+	 * nothing for the URL, so a block from before the audience switch was
+	 * flipped (or before the page was unapproved) cannot keep being printed on
+	 * a live page for the rest of the day.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function delete_seo_head( $url ) {
+		delete_transient( $this->seo_head_key( $url ) );
+	}
+
+	/**
+	 * Whether CiteCue recently said it has no head block for this URL.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return bool
+	 */
+	public function is_recent_seo_head_miss( $url ) {
+		return (bool) get_transient( 'citecue_shm_' . md5( $this->salt() . '|' . self::normalize_url( $url ) ) );
+	}
+
+	/**
+	 * Records that CiteCue has no head block for this URL. Mirrors the API's
+	 * `max-age=60` on both of its empty answers (204 and the 404 sentinel).
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function set_seo_head_miss( $url ) {
+		set_transient( 'citecue_shm_' . md5( $this->salt() . '|' . self::normalize_url( $url ) ), 1, self::MISS_TTL );
+	}
+
+	/**
 	 * Cached llms.txt, or null.
 	 *
 	 * @return array{body:string,etag:string,cached_at:int}|null

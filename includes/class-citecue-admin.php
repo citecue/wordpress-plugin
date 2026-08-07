@@ -134,6 +134,8 @@ class Citecue_Admin {
 				. ' <a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Open settings', 'citecue-ai-auto-fix' ) . '</a></p></div>';
 		}
 
+		$this->seo_head_reconnect_notice();
+
 		if ( ! isset( $_GET['citecue_msg'] ) || ! isset( $_GET['page'] ) || 'citecue' !== $_GET['page'] ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only feedback.
 			return;
 		}
@@ -172,6 +174,46 @@ class Citecue_Admin {
 			. esc_html( $messages[ $code ][1] )
 			. ( $detail ? ' ' . esc_html( $detail ) : '' )
 			. '</p></div>';
+	}
+
+	/**
+	 * Asks for a reconnect when CiteCue's record of this site's SEO-head
+	 * capability is out of date.
+	 *
+	 * CiteCue learns the capability only from the connect exchange, so a site
+	 * that connected before this release injects enriched metadata while the
+	 * app still reports the channel as unable to — and tells the customer their
+	 * "Live" fix is not reaching human visitors. One reconnect fixes it. Shown
+	 * on the Plugins and CiteCue screens only: it is worth acting on, but it is
+	 * not an error, and it has no business following an administrator around
+	 * their whole dashboard.
+	 *
+	 * @return void
+	 */
+	private function seo_head_reconnect_notice() {
+		if ( ! $this->plugin->settings->needs_seo_head_reconnect() ) {
+			return;
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		$here   = $screen ? (string) $screen->id : '';
+		if ( 'plugins' !== $here && false === strpos( $here, 'citecue' ) ) {
+			return;
+		}
+
+		$enabled = (bool) $this->plugin->settings->get( 'seo_head_enabled' );
+		$message = $enabled
+			? __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' )
+			: __( 'enriched page metadata is switched off here, but CiteCue still expects this site to add it. Reconnect so CiteCue stops reporting metadata it is not getting.', 'citecue-ai-auto-fix' );
+		?>
+		<div class="notice notice-warning">
+			<p>
+				<strong><?php esc_html_e( 'CiteCue:', 'citecue-ai-auto-fix' ); ?></strong>
+				<?php echo esc_html( $message ); ?>
+			</p>
+			<p><?php $this->action_button( 'citecue_connect_start', __( 'Reconnect to CiteCue', 'citecue-ai-auto-fix' ) ); ?></p>
+		</div>
+		<?php
 	}
 
 	/**
@@ -443,7 +485,7 @@ class Citecue_Admin {
 				// reads every checkbox as "absent means off" — so the delivery
 				// toggles it does not render travel as hidden inputs rather
 				// than being silently switched off by a save.
-				$this->preserve_toggles( array( 'serve_enabled', 'llms_txt_enabled', 'ingest_enabled' ) );
+				$this->preserve_toggles( array( 'serve_enabled', 'llms_txt_enabled', 'seo_head_enabled', 'ingest_enabled' ) );
 				?>
 				<table class="form-table" role="presentation">
 					<tr>
@@ -493,6 +535,28 @@ class Citecue_Admin {
 							<?php if ( class_exists( 'WooCommerce' ) ) : ?>
 								<p class="description"><?php esc_html_e( 'WooCommerce detected: cart, checkout, account pages and cart-modifying links are never intercepted. Product and shop pages are served normally.', 'citecue-ai-auto-fix' ); ?></p>
 							<?php endif; ?>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Enrich page metadata', 'citecue-ai-auto-fix' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[seo_head_enabled]" value="1" <?php checked( (bool) $settings->get( 'seo_head_enabled' ) ); ?> />
+								<?php esc_html_e( 'Add CiteCue’s title, description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them too.', 'citecue-ai-auto-fix' ); ?>
+							</label>
+							<p class="description">
+								<?php esc_html_e( 'Only fills gaps. Any tag your theme, WordPress or your SEO plugin already outputs is left exactly as it is — CiteCue never emits a second title or canonical.', 'citecue-ai-auto-fix' ); ?>
+								<?php
+								$seo_plugin = self::detected_seo_plugin();
+								if ( '' !== $seo_plugin ) {
+									printf(
+										/* translators: %s: name of the detected SEO plugin. */
+										' ' . esc_html__( '%s is active, so it keeps control of the tags it manages.', 'citecue-ai-auto-fix' ),
+										esc_html( $seo_plugin )
+									);
+								}
+								?>
+							</p>
 						</td>
 					</tr>
 					<tr>
@@ -704,6 +768,19 @@ class Citecue_Admin {
 					<td><?php echo $settings->get( 'serve_enabled' ) ? esc_html__( 'Served to AI crawlers', 'citecue-ai-auto-fix' ) : esc_html__( 'Off', 'citecue-ai-auto-fix' ); ?></td>
 				</tr>
 				<tr>
+					<td><?php esc_html_e( 'Page metadata', 'citecue-ai-auto-fix' ); ?></td>
+					<td>
+						<?php if ( ! $settings->get( 'seo_head_enabled' ) ) : ?>
+							<?php esc_html_e( 'Off', 'citecue-ai-auto-fix' ); ?>
+						<?php elseif ( $settings->needs_seo_head_reconnect() ) : ?>
+							<span style="color:#996800;">&#8212;</span>
+							<?php esc_html_e( 'Enriched here, but CiteCue has not been told yet — reconnect to update it.', 'citecue-ai-auto-fix' ); ?>
+						<?php else : ?>
+							<?php esc_html_e( 'Enriched on live pages (gaps only)', 'citecue-ai-auto-fix' ); ?>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
 					<td><?php esc_html_e( 'llms.txt', 'citecue-ai-auto-fix' ); ?></td>
 					<td>
 						<?php if ( $settings->get( 'llms_txt_enabled' ) ) : ?>
@@ -747,6 +824,36 @@ class Citecue_Admin {
 			</p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * The name of an active SEO plugin, or '' when none is recognized.
+	 *
+	 * Display only. The injector never asks this question — it reads what
+	 * `wp_head` actually printed, which is the only way to be right about a
+	 * theme or a plugin that is not on this list. Naming the one we do
+	 * recognize just turns "only fills gaps" from a claim into something the
+	 * administrator can check against their own site.
+	 *
+	 * @return string
+	 */
+	private static function detected_seo_plugin() {
+		$known = array(
+			'WPSEO_VERSION'             => 'Yoast SEO',
+			'RANK_MATH_VERSION'         => 'Rank Math',
+			'AIOSEO_VERSION'            => 'All in One SEO',
+			'SEOPRESS_VERSION'          => 'SEOPress',
+			'THE_SEO_FRAMEWORK_VERSION' => 'The SEO Framework',
+			'SLIM_SEO_VER'              => 'Slim SEO',
+		);
+
+		foreach ( $known as $constant => $label ) {
+			if ( defined( $constant ) ) {
+				return $label;
+			}
+		}
+
+		return '';
 	}
 
 	/**

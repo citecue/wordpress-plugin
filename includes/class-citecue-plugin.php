@@ -91,6 +91,7 @@ final class Citecue_Plugin {
 
 		( new Citecue_Llms_Txt( $this ) )->register();
 		( new Citecue_Proxy( $this ) )->register();
+		( new Citecue_Seo_Head( $this ) )->register();
 		( new Citecue_Ingest( $this ) )->register();
 
 		if ( is_admin() ) {
@@ -99,6 +100,31 @@ final class Citecue_Plugin {
 
 		add_action( 'init', array( $this, 'on_init' ) );
 		add_action( self::CRON_HOOK, array( $this, 'daily_sync' ) );
+	}
+
+	/**
+	 * The absolute URL of the current request, as the delivery API should be
+	 * asked about it. CiteCue normalizes it server-side (scheme/www/trailing
+	 * slash/tracking params), so this only has to be faithful.
+	 *
+	 * Lives on the container because two callers need it — the crawler proxy
+	 * and the SEO head injector — and they must agree to the character: the
+	 * page cache and the head cache key off the same string, and a URL the two
+	 * spell differently is two cache entries for one page.
+	 *
+	 * @return string
+	 */
+	public static function current_url() {
+		if ( ! isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
+			return '';
+		}
+		$scheme = is_ssl() ? 'https' : 'http';
+		$host   = sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) );
+		// esc_url_raw(), not sanitize_text_field(): the latter deletes every
+		// percent-encoded sequence it finds, so /caf%C3%A9/ would reach CiteCue
+		// as /caf/ and be cached under the wrong key.
+		$uri = esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
+		return esc_url_raw( $scheme . '://' . $host . $uri );
 	}
 
 	/**
@@ -158,5 +184,10 @@ final class Citecue_Plugin {
 	 */
 	public static function deactivate() {
 		wp_clear_scheduled_hook( self::CRON_HOOK );
+		// Queued metadata refreshes, one per URL. wp_unschedule_hook(), not
+		// wp_clear_scheduled_hook(): the latter only clears events whose
+		// arguments match the ones passed, and every one of these carries its
+		// own URL, so an argument-less call would clear none of them.
+		wp_unschedule_hook( Citecue_Seo_Head::REFRESH_HOOK );
 	}
 }
