@@ -85,6 +85,22 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * Queued metadata refreshes are single events carrying a URL each, so there
+	 * can be many of them and none is found by the daily hook's name.
+	 *
+	 * @return void
+	 */
+	public function test_deactivation_clears_queued_metadata_refreshes() {
+		wp_schedule_single_event( time(), Citecue_Seo_Head::REFRESH_HOOK, array( home_url( '/a/' ) ) );
+		wp_schedule_single_event( time(), Citecue_Seo_Head::REFRESH_HOOK, array( home_url( '/b/' ) ) );
+
+		Citecue_Plugin::deactivate();
+
+		$this->assertFalse( wp_next_scheduled( Citecue_Seo_Head::REFRESH_HOOK, array( home_url( '/a/' ) ) ) );
+		$this->assertFalse( wp_next_scheduled( Citecue_Seo_Head::REFRESH_HOOK, array( home_url( '/b/' ) ) ) );
+	}
+
+	/**
 	 * A dropped schedule (a cron plugin, a botched migration) must heal itself
 	 * rather than silently stop refreshing the crawler registry forever.
 	 *

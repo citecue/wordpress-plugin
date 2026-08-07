@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       CiteCue AI Auto-Fix
  * Plugin URI:        https://github.com/citecue/wordpress-plugin
- * Description:       Serves CiteCue-optimized versions of your pages to AI bots and crawlers, publishes your llms.txt, and lets CiteCue push brand-building draft content into WordPress.
- * Version:           1.0.3
+ * Description:       Serves CiteCue-optimized versions of your pages to AI bots and crawlers, adds CiteCue's enriched SEO metadata to your live pages, publishes your llms.txt, and lets CiteCue push brand-building draft content into WordPress.
+ * Version:           1.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CiteCue
@@ -56,7 +56,7 @@ if ( defined( 'CITECUE_VERSION' ) ) {
 	return;
 }
 
-define( 'CITECUE_VERSION', '1.0.3' );
+define( 'CITECUE_VERSION', '1.1.0' );
 define( 'CITECUE_PLUGIN_FILE', __FILE__ );
 define( 'CITECUE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -67,6 +67,7 @@ require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-activity-log.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-api-client.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-connect.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-proxy.php';
+require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-seo-head.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-llms-txt.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-ingest.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-admin.php';

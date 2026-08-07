@@ -170,6 +170,97 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * CiteCue decides whether `seoAudience: 'all'` is a promise this channel
+	 * can keep by reading the capability recorded here — and reads its absence
+	 * as "cannot inject", so under-reporting costs the customer the feature.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_reports_the_seo_head_capability() {
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertTrue( $sent['seo_head'] );
+		$this->assertTrue( $this->plugin->settings->get( 'seo_head_reported' ) );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * A site with injection switched off keeps the promise no better than a
+	 * plugin that cannot inject at all, so it must say so.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_reports_injection_being_switched_off() {
+		$this->plugin->settings->update( array( 'seo_head_enabled' => false ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertFalse( $sent['seo_head'] );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * A failed claim wrote nothing on CiteCue's side, so recording the
+	 * capability locally would silence the reconnect prompt for something the
+	 * app never learned.
+	 *
+	 * @return void
+	 */
+	public function test_a_failed_claim_reports_no_capability() {
+		$this->http->queue( 'connect', 400, wp_json_encode( array( 'error' => 'invalid_code' ) ) );
+
+		$this->connect->claim( 'nonsense' );
+
+		$this->assertNull( $this->plugin->settings->get( 'seo_head_reported' ) );
+	}
+
+	/**
+	 * An install that connected before this release injects enriched metadata
+	 * while CiteCue still reports the channel as unable to. That disagreement
+	 * is exactly what the admin prompt exists to catch.
+	 *
+	 * @return void
+	 */
+	public function test_a_connection_predating_the_capability_asks_for_a_reconnect() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'seo_head_reported' => null ) );
+
+		$this->assertTrue( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * Turning injection off after connecting is the same disagreement in the
+	 * other direction — over-claiming — and is worth the same prompt.
+	 *
+	 * @return void
+	 */
+	public function test_switching_injection_off_after_connecting_asks_for_a_reconnect() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported' => true,
+				'seo_head_enabled'  => false,
+			)
+		);
+
+		$this->assertTrue( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * An unconnected site has nothing to reconcile and must not be nagged.
+	 *
+	 * @return void
+	 */
+	public function test_an_unconnected_site_is_never_asked_to_reconnect() {
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
 	 * The secret must never ride in the browser redirect, only in the
 	 * server-to-server exchange — and a redirect there would be a chance to
 	 * replay it somewhere other than the configured API base.

@@ -4,17 +4,18 @@ Tags: ai, llms.txt, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.0.3
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Serve AI-optimized versions of your pages to AI bots and crawlers, publish your llms.txt, and receive brand-building draft content from CiteCue.
+Serve AI-optimized versions of your pages to AI bots and crawlers, enrich your live pages' SEO metadata, publish your llms.txt, and receive draft content from CiteCue.
 
 == Description ==
 
 CiteCue AI Auto-Fix connects your WordPress site to CiteCue:
 
 * **AI crawler middleware** — when an AI bot or crawler (GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User and more) requests a page, the plugin serves the CiteCue-optimized version of that page. Human visitors always see your normal site. Any miss, timeout or outage passes straight through to the normal page.
+* **Enriched page metadata** — adds CiteCue's title, meta description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them on the page a human sees. It fills gaps only: any tag WordPress, your theme or your SEO plugin already outputs is left exactly as it is, so there is never a second title or canonical.
 * **llms.txt** — publishes the llms.txt file CiteCue generates for your brand at your site root.
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
 * **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
@@ -41,9 +42,13 @@ Privacy Policy: https://citecue.com/privacy
 
 The service is reached at `https://app.citecue.com` (or the origin you pin with the `CITECUE_API_BASE` constant, for self-hosted CiteCue deployments).
 
-**Connecting the site** — once, when an administrator clicks "Connect to CiteCue". Your browser is sent to `app.citecue.com/connect/wordpress` with this site's address so CiteCue can show you which project you are pairing. WordPress then posts to `/api/delivery/v2/connect/claim`: the one-time code from that redirect, this site's address, its REST API address, this site's content-push secret, the plugin version, and whether WooCommerce is active. CiteCue returns the API key it issued for this site. The API-key fallback instead sends the key you paste to `/api/delivery/v2/config`, which returns your organization's projects.
+**Connecting the site** — once, when an administrator clicks "Connect to CiteCue". Your browser is sent to `app.citecue.com/connect/wordpress` with this site's address so CiteCue can show you which project you are pairing. WordPress then posts to `/api/delivery/v2/connect/claim`: the one-time code from that redirect, this site's address, its REST API address, this site's content-push secret, the plugin version, whether WooCommerce is active, and whether enriched page metadata is switched on. CiteCue returns the API key it issued for this site. The API-key fallback instead sends the key you paste to `/api/delivery/v2/config`, which returns your organization's projects.
 
 **Serving a page to an AI crawler** — on each request from a matched AI crawler, and never for a human visitor or a logged-in user. The plugin sends the requested URL, the matched crawler's User-Agent token and the site's project key to `/api/delivery/v2/page`. No visitor data — no IP address, no cookies, no personal data — is sent. CiteCue records the crawler hit so it can report it back to you. Responses are cached, misses are remembered for a minute, and a per-minute budget caps the total.
+
+**Enriching a page's metadata** — in the background, on WP-Cron, for a URL a visitor has requested while enriched metadata is switched on. The requested URL and the site's project key are sent to `/api/delivery/v2/seo-head`. No visitor data — no IP address, no cookies, no personal data — is sent, and this never happens while a visitor is waiting: a page with no cached block yet is rendered untouched and the fetch is queued for afterwards.
+
+Before a URL is cached, queued or sent, every query argument WordPress does not recognise as a query variable is removed from it, so tokens, order keys and nonces that happen to be in the address are never included. WooCommerce cart, checkout, account and order pages are skipped entirely. Responses are cached, empty answers are remembered for a minute, the same per-minute budget caps outbound calls, and a second per-minute cap limits how many refreshes a burst of traffic can queue.
 
 **Serving llms.txt** — when `/llms.txt` is requested and the feature is on. The site's project key is sent to `/api/delivery/v2/llms.txt`. The response is cached.
 
@@ -79,7 +84,15 @@ Settings → CiteCue → "Recent AI crawler activity" tells you which it is. A "
 
 = Will human visitors ever see the optimized version? =
 
-No. Only requests whose User-Agent matches the AI-crawler registry are served optimized content, and those responses are never cached for regular traffic.
+No. Only requests whose User-Agent matches the AI-crawler registry are served the optimized *page*, and those responses are never cached for regular traffic. Enriched metadata is different and deliberately so: those are head-only tags describing the page a visitor is already looking at, so they are added for everyone, including Google. The visible page is never altered.
+
+= Will this conflict with Yoast SEO, Rank Math, All in One SEO or SEOPress? =
+
+No. CiteCue reads what your theme, WordPress and your SEO plugin actually printed into `<head>`, and adds only the tags none of them emitted — checking the output rather than looking for a particular plugin, so it is equally correct with an SEO plugin nobody has heard of. A site where Yoast already handles the title, description, canonical, OpenGraph and schema gets nothing added, which is the right answer. A site where it handles the basics but emits no OpenGraph gets the OpenGraph tags.
+
+CiteCue's tags carry a `data-citecue` attribute, so View Source tells you exactly which ones it added.
+
+To hand a slot back to CiteCue, remove your SEO plugin's copy of that tag and re-add CiteCue's through the `citecue_seo_head_tags` filter. To switch the whole thing off, untick "Enrich page metadata" under Settings → CiteCue.
 
 = What happens if CiteCue is down? =
 
@@ -95,10 +108,23 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 
 == Upgrade Notice ==
 
+= 1.1.0 =
+Adds enriched page metadata for live pages. Existing connections need one reconnect before CiteCue knows this site can do it — Settings → CiteCue will ask.
+
 = 1.0.1 =
 The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploading the zip from GitHub, delete the old citecue folder after updating — your settings and connection are stored in the database and carry over untouched.
 
 == Changelog ==
+
+= 1.1.0 =
+* New: enriched page metadata. CiteCue's title, meta description, OpenGraph, canonical and structured-data tags are added to your live pages, so search engines and AI answer engines see them, not just AI crawlers. Uses CiteCue's `/api/delivery/v2/seo-head` endpoint.
+* Fills gaps only: anything WordPress, your theme or your SEO plugin already prints is left untouched, so the plugin never emits a second title or canonical. Detection reads the real `<head>` output rather than looking for particular plugins.
+* Never delays a page: the render path reads cache only. A URL with nothing cached yet renders untouched and the fetch is queued for afterwards. Cached blocks survive a CiteCue outage and are served while a refresh runs.
+* The connection now tells CiteCue whether this site injects metadata, so CiteCue stops reporting fixes as reaching human visitors when nothing puts them on the page. Sites connected before this release are asked to reconnect once.
+* Nothing from the response is printed as it arrived: every tag is parsed, checked against an allowlist of shapes and rebuilt from escaped values, with structured data re-encoded so it cannot escape its own script element.
+* Query arguments WordPress does not recognise are stripped from the URL before it is cached, queued or sent, and store pages are skipped — so order keys, reset tokens and nonces are never included, and a visitor cannot fill the scheduler with unique addresses for one page.
+* Changing the selected CiteCue project now clears the delivery cache, instead of serving the previous project's pages, llms.txt and metadata under the new one for up to a day.
+* New filters: `citecue_should_inject_seo_head` (skip a page), `citecue_seo_head_tags` (change what is printed), `citecue_seo_head_query_vars` and `citecue_seo_head_schedule_budget`.
 
 = 1.0.3 =
 * No functional change. Annotates the DONOTCACHEPAGE definitions so code-quality tooling stops reporting a naming-convention violation the constant cannot avoid — page caches look for that exact name.

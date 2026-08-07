@@ -3,8 +3,9 @@
 Middleware between your WordPress site and the AI web. The plugin:
 
 1. **Serves AI-optimized pages to AI bots and crawlers.** When GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User and friends request a page, the plugin fetches the CiteCue-optimized version of that page from the [CiteCue app](https://github.com/henry-mosh/citecue_app) delivery API and serves it instead of the theme output. Human visitors always get your normal site, and any miss, timeout or CiteCue outage falls straight through to the normal page — the integration can never break your site.
-2. **Publishes your `llms.txt`** ([llmstxt.org](https://llmstxt.org) convention) at `https://your-site.com/llms.txt`, generated and kept current by CiteCue.
-3. **Accepts new content pushed by CiteCue** — content briefs, FAQ packs and other gap-filling pages that promote your brand where AI answers currently miss it — through a signed REST endpoint. Pushed content lands as a **draft** by default so nothing goes live without review.
+2. **Enriches your live pages' SEO metadata.** CiteCue's title, meta description, OpenGraph, canonical and JSON-LD tags are added to the `<head>` of the page a *human* sees, so Google and AI answer engines get them too — not only the crawlers served in (1). It fills gaps only: anything WordPress, your theme or your SEO plugin already printed is left exactly as it is.
+3. **Publishes your `llms.txt`** ([llmstxt.org](https://llmstxt.org) convention) at `https://your-site.com/llms.txt`, generated and kept current by CiteCue.
+4. **Accepts new content pushed by CiteCue** — content briefs, FAQ packs and other gap-filling pages that promote your brand where AI answers currently miss it — through a signed REST endpoint. Pushed content lands as a **draft** by default so nothing goes live without review.
 
 ## How it works
 
@@ -17,18 +18,28 @@ AI crawler (GPTBot, ClaudeBot, …)                Human visitor
 │  UA matches AI-crawler registry?  ──no──►  normal theme output  │
 │        │yes                                                     │
 │        ▼                                                        │
-│  GET {app}/api/delivery/v2/page?k=…&u=…&b=…                     │
-│  Authorization: Bearer ck_live_…   X-Citecue-Channel: wordpress │
-│        │200/304: serve optimized HTML (x-citecue: served)       │
-│        │404 miss / timeout / error: normal theme output         │
+│  GET {app}/api/delivery/v2/page?k=…&u=…&b=…      wp_head:       │
+│  Authorization: Bearer ck_live_…                 append cached  │
+│        │200/304: serve optimized HTML            head tags that │
+│        │404 / timeout: normal theme output       fill a gap     │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+The two halves never overlap. The left one replaces the whole document, for
+detected crawlers only. The right one adds head-only tags to the document the
+theme rendered, and CiteCue only serves a block for `enriched` pages in `all`
+audience mode — content-parity markup, so adding it is additive rather than
+cloaking.
 
 - **One request serves and reports.** The v2 delivery endpoint records the crawler hit server-side (`served` for 200/304, `passthrough` for a miss), so CiteCue's Agent Traffic dashboard stays accurate with no extra beacon.
 - **Conditional revalidation.** Optimized bodies are cached locally with their ETag; revalidation is a cheap 304 round-trip. Misses are negative-cached for 60 s (mirroring the API's `max-age=60` miss sentinel).
 - **Circuit breaker.** A timeout or 5xx opens a 60 s circuit (10 min on a rejected key): no API calls, stale cache served when available, plain pass-through otherwise. A CiteCue outage never slows human traffic — the API is only ever called for AI-crawler requests in the first place.
 - **Abuse-bounded.** Cache keys use CiteCue-compatible URL normalization (tracking params, `www.`, trailing slashes deduped), and outbound lookups are capped by a per-minute budget shared across the crawler and llms.txt paths (default 120, filterable) — neither a spoofed crawler UA spraying unique URLs nor a flood on `/llms.txt` can force unbounded API calls. When CiteCue reports a page is no longer optimized, its cached copy is evicted immediately.
 - **Crawler registry.** A bundled token list ships with the plugin and refreshes daily from the public `GET /api/delivery/v1/crawlers` feed, so newly added crawlers are served without a plugin update.
+- **Metadata never blocks a render.** The `wp_head` path reads the transient cache and nothing else. A URL with no cached block renders untouched and queues a WP-Cron fetch, so the *next* visitor gets the tags; a stale block keeps being printed while the refresh runs. A human page view never waits on CiteCue.
+- **Gap-filling, not overriding.** The injector captures the rendered `<head>` (buffering from `template_redirect` so a theme printing its own `<title>` in `header.php` is seen too, not just `wp_head` output), reads the slots already filled — title, canonical, each meta name/property, JSON-LD — and drops any CiteCue tag whose slot is taken. Detection by output, so it is correct against SEO plugins and themes it has never heard of. It never emits a second `<title>` or a second canonical.
+- **Nothing from the response is echoed.** Every tag is parsed, checked against an allowlist of shapes, and *rebuilt* from escaped values: only `application/ld+json` scripts (re-encoded with `JSON_HEX_TAG`), only `canonical`/`alternate` links with an http/https `href`, only `<meta>` carrying a `name`/`property`. Attributes outside that set are discarded. A regex that merely inspects remote markup is one quoted attribute away from authorizing something it misread; rebuilding cannot be.
+- **A visitor cannot grow the queue.** The lookup URL is the request's own minus every query argument WordPress does not recognize as a query variable, and scheduling is capped per minute. Without both, `/?x=<random>` — which renders the homepage — would mint unlimited cache keys and cron events. It also keeps order keys, reset tokens and nonces out of what is cached and sent; WooCommerce cart/checkout/account pages are skipped outright, as on the crawler path.
 - **Verification-compatible.** Served pages carry `X-Citecue: served` and llms.txt carries `X-Citecue: llms-txt` — the headers CiteCue's *Verify installation* button probes for.
 
 ## Setup
@@ -180,6 +191,7 @@ With WooCommerce active:
 | `POST /api/delivery/v2/connect/claim` | one-time code | Pairing handshake: code → this site's API key + project |
 | `GET /api/delivery/v2/config` | `Bearer ck_live_…` | Connection test + project auto-selection by domain |
 | `GET /api/delivery/v2/page?k&u&b` | `Bearer ck_live_…` + `X-Citecue-Channel: wordpress` | Optimized page for a crawler request (ETag/304; 404 = pass through; hit recorded server-side) |
+| `GET /api/delivery/v2/seo-head?k&u` | `Bearer ck_live_…` + `X-Citecue-Channel: wordpress` | Enriched head block for one URL, injected into live pages (204 = nothing to inject; 404 = not optimized; fetched on cron, never on a render) |
 | `GET /api/delivery/v2/llms.txt?k` | `Bearer ck_live_…` | llms.txt body (ETag/304) |
 | `GET /api/delivery/v1/crawlers` | none (public) | Daily AI-crawler UA token refresh |
 
@@ -192,19 +204,25 @@ With WooCommerce active:
 | `citecue_matched_crawler` | filter | Override per-request crawler matching |
 | `citecue_should_serve` | filter | Veto serving for a specific request |
 | `citecue_serve_timeout` | filter | Delivery API timeout on the serving path (default 3 s) |
-| `citecue_lookup_budget` | filter | Max delivery API lookups per minute across the crawler and llms.txt paths combined (default 120); beyond it, requests are answered from cache or passed through |
+| `citecue_lookup_budget` | filter | Max delivery API lookups per minute across the crawler, llms.txt and metadata-refresh paths combined (default 120); beyond it, requests are answered from cache or passed through |
+| `citecue_should_inject_seo_head` | filter | Veto SEO head injection for a specific page |
+| `citecue_seo_head_tags` | filter | Change the head tags about to be printed, after the gap-fill — the escape hatch for letting CiteCue win a slot your SEO plugin owns. Output is printed unescaped, so a filter that adds markup owns escaping it |
+| `citecue_seo_head_query_vars` | filter | Query variables kept in the metadata lookup URL (defaults to the site's public query vars); anything else is stripped before caching, scheduling or sending |
+| `citecue_seo_head_schedule_budget` | filter | Max metadata refreshes queued per minute (default 20) |
 | `citecue_ingest_postarr` | filter | Adjust the post array before insert/update |
 | `citecue_ingest_rate_limit` | filter | Ingest requests allowed per hour (default 120) |
 | `citecue_output_meta_description` | filter | Control the meta-description tag for pushed content |
 
 ## Performance
 
-The delivery API is only ever called for an AI-crawler request or for `/llms.txt`. A human page view does no HTTP, no extra database query and no cache lookup — the middleware returns as soon as the User-Agent fails to match, having done nothing but a substring scan over the crawler tokens (which travel in an autoloaded option WordPress has already read).
+The delivery API is never called while a human is waiting. For an AI-crawler request or `/llms.txt` the call is on the request path, because only a bot is blocked by it. For enriched metadata it is on WP-Cron: the render path reads one transient, and a miss queues the fetch rather than making it.
+
+A human page view with metadata switched off does no HTTP, no extra database query and no cache lookup — the middleware returns as soon as the User-Agent fails to match, having done nothing but a substring scan over the crawler tokens (which travel in an autoloaded option WordPress has already read). With it switched on, the added cost is one transient read, plus — only when there is something to print — an output buffer held from `template_redirect` to the end of `wp_head` (so it closes within the first few kilobytes of the page, not at the end of it) and a parse of the head it captured.
 
 For a crawler request the cost is one API call, with a 3 s timeout, and only when the local cache cannot answer: optimized bodies are cached for 24 h and revalidated with an ETag, misses are negative-cached for 60 s, and llms.txt is treated as fresh for 5 minutes. A repeat crawl of a cached page is a 304, not a re-download.
 
 - **A persistent object cache is recommended.** Cached bodies are transients. With Redis or Memcached they never touch the database. Without one they are rows in `wp_options` — full HTML documents, one per crawled URL, for up to 24 h. They are not autoloaded, so they cost nothing per request, but a heavily crawled site can hold tens of megabytes there until WordPress's twice-daily transient cleanup runs.
-- **The outbound-call ceiling is per site, not per path.** The 120/minute budget covers crawler lookups and llms.txt together, so no mix of traffic can exceed it.
+- **The outbound-call ceiling is per site, not per path.** The 120/minute budget covers crawler lookups, llms.txt and metadata refreshes together, so no mix of traffic can exceed it. Queueing a metadata refresh has its own, separate per-minute cap (20), because that one is spent on the render path where a visitor chooses how many URLs to ask about.
 
 ## What happens if CiteCue is unavailable
 
@@ -215,6 +233,7 @@ The worst case for an AI crawler is one 3 s wait per minute. For a human visitor
 ## Notes & caveats
 
 - **Full-page caches / CDNs:** a page cache that serves HTML before WordPress loads will answer AI crawlers with the cached human version. Exclude the AI-crawler user agents from your page cache, or rely on CiteCue's Cloudflare Worker install instead of this plugin when your cache sits in front of PHP. Responses served by this plugin set `DONOTCACHEPAGE` and `Cache-Control: private, no-store` so they are never stored for humans.
+- **Full-page caches and enriched metadata:** the injected tags are the same for every visitor, so a page cache storing them is correct and desirable — unlike the crawler path, this one deliberately does *not* set `DONOTCACHEPAGE`. The consequence is that a page cached before its block was warm keeps the un-enriched copy until that cache entry expires.
 - **Physical `llms.txt`:** a real file in the web root is served by the web server before WordPress runs and therefore wins over the plugin.
 - **Subdirectory installs:** llms.txt is served at the WordPress root (e.g. `/blog/llms.txt`); the domain-root convention requires a root install (or the Cloudflare Worker).
 - **Uninstall** removes plugin options and scheduled events; content pushed by CiteCue is your content and is kept.
@@ -278,3 +297,5 @@ The second URL must be one CiteCue holds an optimized version of; anything else 
 ### Structure notes
 
 `Citecue_Proxy` and `Citecue_Llms_Txt` each split into a `decide()` that returns what should happen and a `serve()` that emits headers and calls `exit`. All the branching lives in `decide()`, which is what the tests drive; `serve()` stays deliberately trivial because nothing can assert against a request that has already ended.
+
+`Citecue_Seo_Head` follows the same split for the same reason, in three pieces rather than two: `decide()` answers "what should this page get" from cache alone, `refresh()` is the only part that talks to the network (on cron, never on a render), and `merge()` is a pure function from (what the rest of `wp_head` printed, CiteCue's block) to the tags that may be added. `merge()` is the whole conflict-avoidance contract with every other SEO plugin on the site, and being pure is what lets it be tested against a real Yoast head dump without a request in sight.

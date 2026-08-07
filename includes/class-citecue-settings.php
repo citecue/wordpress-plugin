@@ -44,6 +44,13 @@ class Citecue_Settings {
 			// Delivery.
 			'serve_enabled'      => true,
 			'llms_txt_enabled'   => true,
+			'seo_head_enabled'   => true,
+			// The value of seo_head_enabled last reported to CiteCue, or null
+			// if this site has never reported one. CiteCue records the
+			// capability on the API key at connect time and has no other way to
+			// learn it, so this is how the settings screen knows to ask for a
+			// reconnect — see needs_seo_head_reconnect().
+			'seo_head_reported'  => null,
 			// Content ingest (CiteCue -> WordPress post creation).
 			'ingest_enabled'     => false,
 			'ingest_secret'      => '',
@@ -183,6 +190,35 @@ class Citecue_Settings {
 	}
 
 	/**
+	 * Whether CiteCue's record of this site's SEO-head capability disagrees
+	 * with what the site is actually doing, so a reconnect is worth asking for.
+	 *
+	 * CiteCue stores the capability on the API key, written only by the connect
+	 * exchange, and reads its absence as "cannot inject" — deliberately, so a
+	 * plugin built before the endpoint existed can never make the app promise
+	 * markup nothing puts on the page. That fail-closed default is also what
+	 * makes this comparison simple: never-reported and reported-false mean the
+	 * same thing to CiteCue.
+	 *
+	 * The disagreement is worth surfacing in both directions. Under-claiming
+	 * loses the customer a feature they are paying for and shows "this channel
+	 * can't inject" against a plugin that now can; over-claiming is the failure
+	 * the capability exists to prevent.
+	 *
+	 * @return bool
+	 */
+	public function needs_seo_head_reconnect() {
+		if ( ! $this->is_connected() ) {
+			return false;
+		}
+
+		$reported = $this->get( 'seo_head_reported' );
+		$known    = null === $reported ? false : (bool) $reported;
+
+		return (bool) $this->get( 'seo_head_enabled' ) !== $known;
+	}
+
+	/**
 	 * Ensures the ingest shared secret exists, generating one if missing.
 	 *
 	 * @return string
@@ -238,6 +274,7 @@ class Citecue_Settings {
 
 		$out['serve_enabled']    = ! empty( $input['serve_enabled'] );
 		$out['llms_txt_enabled'] = ! empty( $input['llms_txt_enabled'] );
+		$out['seo_head_enabled'] = ! empty( $input['seo_head_enabled'] );
 		$out['ingest_enabled']   = ! empty( $input['ingest_enabled'] );
 
 		if ( isset( $input['ingest_post_status'] ) && in_array( $input['ingest_post_status'], array( 'draft', 'pending', 'publish' ), true ) ) {
@@ -268,11 +305,28 @@ class Citecue_Settings {
 		if ( isset( $input['project_domain'] ) && is_string( $input['project_domain'] ) ) {
 			$out['project_domain'] = sanitize_text_field( $input['project_domain'] );
 		}
+		// Tri-state: null means "never reported", which is what an install that
+		// predates the capability must keep reading as until it reconnects.
+		if ( array_key_exists( 'seo_head_reported', $input ) ) {
+			$out['seo_head_reported'] = null === $input['seo_head_reported'] ? null : (bool) $input['seo_head_reported'];
+		}
 
 		// A changed key may fix a previous auth failure; let serving retry now.
 		if ( $out['api_key'] !== $current['api_key'] ) {
 			delete_option( 'citecue_auth_failed' );
 			delete_transient( 'citecue_circuit' );
+		}
+
+		// A changed project invalidates every cached body, llms.txt and head
+		// block on the site (PR #10 review). All three key off the cache salt
+		// and the URL and NOT off the project, so without this an administrator
+		// who repoints the site at another CiteCue project keeps being served
+		// the previous project's content under the new one's name — its
+		// optimized pages to crawlers, and its title, canonical and structured
+		// data onto live pages, for up to a day. Disconnecting already flushes;
+		// switching project is the same event by another route.
+		if ( $out['public_key'] !== $current['public_key'] ) {
+			( new Citecue_Cache() )->flush();
 		}
 
 		$this->values = $out;

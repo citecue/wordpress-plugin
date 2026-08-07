@@ -190,14 +190,154 @@ class Citecue_Cache {
 		 *
 		 * @param int $limit Default 120.
 		 */
-		$limit = max( 1, (int) apply_filters( 'citecue_lookup_budget', 120 ) );
-		$key   = 'citecue_budget_' . (int) floor( time() / MINUTE_IN_SECONDS );
+		return $this->consume_minute_budget( 'citecue_budget_', apply_filters( 'citecue_lookup_budget', 120 ) );
+	}
+
+	/**
+	 * Consumes one unit of a per-minute counter, as close to atomically as the
+	 * site's object cache allows.
+	 *
+	 * Read-then-write is a race (PR #10 review): concurrent requests all read
+	 * the same count, all find themselves under the limit, and all proceed, so
+	 * the ceiling can be overshot by roughly the concurrency. `wp_cache_incr()`
+	 * is a single operation on the backing store, so where a persistent object
+	 * cache exists the count is exact.
+	 *
+	 * Without one there is nothing to be exact with — the options table has no
+	 * atomic increment reachable through the transient API — so that path stays
+	 * best-effort by necessity, and both callers are rate limits whose failure
+	 * mode is a bounded overshoot rather than an unbounded one. It is also
+	 * where a failed increment lands, so no failure of the fast path can ever
+	 * answer "allowed" without counting something. Shared by both budgets so
+	 * they cannot drift apart on this.
+	 *
+	 * @param string $prefix Transient/cache key prefix, including the trailing separator.
+	 * @param int    $limit  Units allowed in one minute.
+	 * @return bool Whether a unit was available.
+	 */
+	private function consume_minute_budget( $prefix, $limit ) {
+		$limit = max( 1, (int) $limit );
+		$key   = $prefix . (int) floor( time() / MINUTE_IN_SECONDS );
+
+		if ( wp_using_ext_object_cache() ) {
+			wp_cache_add( $key, 0, 'citecue', 2 * MINUTE_IN_SECONDS );
+			$count = wp_cache_incr( $key, 1, 'citecue' );
+			if ( false !== $count ) {
+				return $count <= $limit;
+			}
+			// The increment failed: the entry was evicted between the add and
+			// the increment, or the backend is not answering. Fall through to
+			// the counter below rather than reading it as a fresh bucket
+			// (CodeRabbit review) — a backend failing every increment would
+			// then return "allowed" every time and remove the ceiling
+			// altogether, which is the one outcome a rate limit may not have.
+		}
+
 		$count = (int) get_transient( $key );
 		if ( $count >= $limit ) {
 			return false;
 		}
 		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
 		return true;
+	}
+
+	/**
+	 * Transient key for a URL's SEO head block. Keyed separately from the page
+	 * body: the two have different lifetimes and different eviction triggers —
+	 * a page can stop being injectable (audience switched off) while its
+	 * optimized body is still perfectly servable to crawlers.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return string
+	 */
+	private function seo_head_key( $url ) {
+		return 'citecue_sh_' . md5( $this->salt() . '|' . self::normalize_url( $url ) );
+	}
+
+	/**
+	 * Cached SEO head block for a URL, or null.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return array{block:string,cached_at:int}|null
+	 */
+	public function get_seo_head( $url ) {
+		$hit = get_transient( $this->seo_head_key( $url ) );
+		return ( is_array( $hit ) && isset( $hit['block'] ) ) ? $hit : null;
+	}
+
+	/**
+	 * Stores a URL's SEO head block.
+	 *
+	 * @param string $url   Absolute page URL.
+	 * @param string $block Head markup.
+	 * @return void
+	 */
+	public function set_seo_head( $url, $block ) {
+		set_transient(
+			$this->seo_head_key( $url ),
+			array(
+				'block'     => (string) $block,
+				'cached_at' => time(),
+			),
+			self::BODY_TTL
+		);
+	}
+
+	/**
+	 * Removes a cached SEO head block. Called whenever CiteCue says it has
+	 * nothing for the URL, so a block from before the audience switch was
+	 * flipped (or before the page was unapproved) cannot keep being printed on
+	 * a live page for the rest of the day.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function delete_seo_head( $url ) {
+		delete_transient( $this->seo_head_key( $url ) );
+	}
+
+	/**
+	 * Whether CiteCue recently said it has no head block for this URL.
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return bool
+	 */
+	public function is_recent_seo_head_miss( $url ) {
+		return (bool) get_transient( 'citecue_shm_' . md5( $this->salt() . '|' . self::normalize_url( $url ) ) );
+	}
+
+	/**
+	 * Records that CiteCue has no head block for this URL. Mirrors the API's
+	 * `max-age=60` on both of its empty answers (204 and the 404 sentinel).
+	 *
+	 * @param string $url Absolute page URL.
+	 * @return void
+	 */
+	public function set_seo_head_miss( $url ) {
+		set_transient( 'citecue_shm_' . md5( $this->salt() . '|' . self::normalize_url( $url ) ), 1, self::MISS_TTL );
+	}
+
+	/**
+	 * Consumes one unit of the per-minute budget for QUEUEING a metadata
+	 * refresh, which is a different ceiling from the outbound-call one above
+	 * and needs to be (PR #10 review).
+	 *
+	 * `consume_lookup_budget()` is spent when a job RUNS, so it bounds what
+	 * reaches CiteCue and nothing else. Scheduling happens on the render path,
+	 * where an anonymous visitor decides how many distinct URLs to ask about —
+	 * and every scheduled event is a row in WordPress's serialized `cron`
+	 * option, which is rewritten in full on every change. Unbounded, that turns
+	 * page views into an ever more expensive database write. This caps it.
+	 *
+	 * @return bool Whether a refresh may be queued.
+	 */
+	public function consume_seo_head_schedule_budget() {
+		/**
+		 * Filters the maximum SEO head refreshes queued per minute.
+		 *
+		 * @param int $limit Default 20.
+		 */
+		return $this->consume_minute_budget( 'citecue_shb_', apply_filters( 'citecue_seo_head_schedule_budget', 20 ) );
 	}
 
 	/**

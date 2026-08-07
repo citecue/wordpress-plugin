@@ -167,6 +167,41 @@ abstract class Citecue_Test_Case extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A SEO head injector bound to the plugin under test.
+	 *
+	 * @return Citecue_Seo_Head
+	 */
+	protected function seo_head() {
+		return new Citecue_Seo_Head( $this->plugin );
+	}
+
+	/**
+	 * Turns the current request into an ordinary human page view of a real
+	 * published post.
+	 *
+	 * A real post, not just a path: the injector refuses to touch a 404, so a
+	 * URL with nothing behind it would make every one of its tests pass for the
+	 * wrong reason.
+	 *
+	 * @param string $path Request path, or '' to create a post and visit it.
+	 * @return string The absolute URL of the faked request.
+	 */
+	protected function fake_visitor_request( $path = '' ) {
+		$url = '' !== $path
+			? home_url( $path )
+			: (string) get_permalink( self::factory()->post->create( array( 'post_status' => 'publish' ) ) );
+
+		// go_to() runs the main query, so is_404()/is_search()/is_feed() — which
+		// the injector's eligibility check consults — answer truthfully.
+		$this->go_to( $url );
+
+		$_SERVER['REQUEST_METHOD'] = 'GET';
+		unset( $_SERVER['HTTP_USER_AGENT'] );
+
+		return $url;
+	}
+
+	/**
 	 * Asserts the proxy left the request to WordPress, for the stated reason.
 	 *
 	 * @param string $reason   Expected decision reason.

@@ -68,7 +68,7 @@ class Citecue_Http_Mock {
 	/**
 	 * Queues a response for an endpoint.
 	 *
-	 * @param string $endpoint One of page|llms|config|crawlers.
+	 * @param string $endpoint One of page|seo_head|llms|config|crawlers.
 	 * @param int    $status   HTTP status code.
 	 * @param string $body     Response body.
 	 * @param array  $headers  Response headers (case-insensitive).
@@ -86,7 +86,7 @@ class Citecue_Http_Mock {
 	/**
 	 * Queues a transport failure (timeout, DNS error, refused connection).
 	 *
-	 * @param string $endpoint One of page|llms|config|crawlers.
+	 * @param string $endpoint One of page|seo_head|llms|config|crawlers.
 	 * @param string $message  Error message.
 	 * @return $this
 	 */
@@ -189,6 +189,9 @@ class Citecue_Http_Mock {
 	private static function classify( $url ) {
 		if ( false !== strpos( $url, '/api/delivery/v2/connect/claim' ) ) {
 			return 'connect';
+		}
+		if ( false !== strpos( $url, '/api/delivery/v2/seo-head' ) ) {
+			return 'seo_head';
 		}
 		if ( false !== strpos( $url, '/api/delivery/v2/page' ) ) {
 			return 'page';

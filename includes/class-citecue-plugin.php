@@ -91,6 +91,7 @@ final class Citecue_Plugin {
 
 		( new Citecue_Llms_Txt( $this ) )->register();
 		( new Citecue_Proxy( $this ) )->register();
+		( new Citecue_Seo_Head( $this ) )->register();
 		( new Citecue_Ingest( $this ) )->register();
 
 		if ( is_admin() ) {
@@ -99,6 +100,63 @@ final class Citecue_Plugin {
 
 		add_action( 'init', array( $this, 'on_init' ) );
 		add_action( self::CRON_HOOK, array( $this, 'daily_sync' ) );
+	}
+
+	/**
+	 * The absolute URL of the current request, as the delivery API should be
+	 * asked about it. CiteCue normalizes it server-side (scheme/www/trailing
+	 * slash/tracking params), so this only has to be faithful.
+	 *
+	 * Lives on the container because two callers need it — the crawler proxy
+	 * and the SEO head injector — and they must agree to the character: the
+	 * page cache and the head cache key off the same string, and a URL the two
+	 * spell differently is two cache entries for one page.
+	 *
+	 * @return string
+	 */
+	public static function current_url() {
+		if ( ! isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
+			return '';
+		}
+		$scheme = is_ssl() ? 'https' : 'http';
+		$host   = sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) );
+		// esc_url_raw(), not sanitize_text_field(): the latter deletes every
+		// percent-encoded sequence it finds, so /caf%C3%A9/ would reach CiteCue
+		// as /caf/ and be cached under the wrong key.
+		$uri = esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
+		return esc_url_raw( $scheme . '://' . $host . $uri );
+	}
+
+	/**
+	 * WooCommerce requests neither delivery path may touch: cart, checkout
+	 * (incl. order-pay / order-received), account pages and every other WC
+	 * endpoint are session/transactional; `?add-to-cart=` GETs mutate the cart
+	 * and `wc-ajax` calls are API traffic. Product and shop-archive pages
+	 * remain eligible — those are the highest-value pages to optimize.
+	 *
+	 * Shared with the SEO head injector rather than owned by the proxy
+	 * (PR #10 review). The proxy's reason for skipping these is that they are
+	 * session content; the injector has a second, sharper one — their URLs
+	 * carry order ids, `wc_order_*` keys and account tokens, and that path
+	 * would put the URL in a cron argument and then send it to CiteCue. One
+	 * copy means the two can never disagree about which those pages are.
+	 *
+	 * @return bool True when this request belongs to WooCommerce.
+	 */
+	public static function is_woocommerce_request() {
+		if ( ! class_exists( 'WooCommerce' ) ) {
+			return false;
+		}
+		if ( function_exists( 'is_cart' ) && ( is_cart() || is_checkout() || is_account_page() ) ) {
+			return true;
+		}
+		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url() ) {
+			return true;
+		}
+		if ( isset( $_GET['wc-ajax'] ) || isset( $_GET['add-to-cart'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request classification.
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -158,5 +216,10 @@ final class Citecue_Plugin {
 	 */
 	public static function deactivate() {
 		wp_clear_scheduled_hook( self::CRON_HOOK );
+		// Queued metadata refreshes, one per URL. wp_unschedule_hook(), not
+		// wp_clear_scheduled_hook(): the latter only clears events whose
+		// arguments match the ones passed, and every one of these carries its
+		// own URL, so an argument-less call would clear none of them.
+		wp_unschedule_hook( Citecue_Seo_Head::REFRESH_HOOK );
 	}
 }

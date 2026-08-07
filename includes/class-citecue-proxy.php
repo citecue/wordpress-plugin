@@ -82,7 +82,7 @@ class Citecue_Proxy {
 			return self::pass( 'not-a-crawler' );
 		}
 
-		$url = $this->current_url();
+		$url = Citecue_Plugin::current_url();
 		if ( '' === $url ) {
 			return self::pass( 'no-url' );
 		}
@@ -250,7 +250,7 @@ class Citecue_Proxy {
 		if ( '' !== (string) get_query_var( 'sitemap' ) ) {
 			return false;
 		}
-		if ( $this->is_excluded_woocommerce_request() ) {
+		if ( Citecue_Plugin::is_woocommerce_request() ) {
 			return false;
 		}
 		if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) {
@@ -269,50 +269,6 @@ class Citecue_Proxy {
 			return false;
 		}
 		return true;
-	}
-
-	/**
-	 * WooCommerce requests the proxy must never touch: cart, checkout (incl.
-	 * order-pay / order-received), account pages and every other WC endpoint
-	 * are session/transactional; `?add-to-cart=` GETs mutate the cart and
-	 * `wc-ajax` calls are API traffic. Product and shop-archive pages remain
-	 * eligible — those are the highest-value pages to serve optimized.
-	 *
-	 * @return bool True when this request belongs to WooCommerce.
-	 */
-	private function is_excluded_woocommerce_request() {
-		if ( ! class_exists( 'WooCommerce' ) ) {
-			return false;
-		}
-		if ( function_exists( 'is_cart' ) && ( is_cart() || is_checkout() || is_account_page() ) ) {
-			return true;
-		}
-		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url() ) {
-			return true;
-		}
-		if ( isset( $_GET['wc-ajax'] ) || isset( $_GET['add-to-cart'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only request classification.
-			return true;
-		}
-		return false;
-	}
-
-	/**
-	 * The absolute URL of the current request. CiteCue normalizes it
-	 * server-side (scheme/www/trailing-slash/tracking params).
-	 *
-	 * @return string
-	 */
-	private function current_url() {
-		if ( ! isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
-			return '';
-		}
-		$scheme = is_ssl() ? 'https' : 'http';
-		$host   = sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) );
-		// esc_url_raw(), not sanitize_text_field(): the latter deletes every
-		// percent-encoded sequence it finds, so /caf%C3%A9/ would reach CiteCue
-		// as /caf/ and be cached under the wrong key.
-		$uri = esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
-		return esc_url_raw( $scheme . '://' . $host . $uri );
 	}
 
 	/**
