@@ -190,8 +190,42 @@ class Citecue_Cache {
 		 *
 		 * @param int $limit Default 120.
 		 */
-		$limit = max( 1, (int) apply_filters( 'citecue_lookup_budget', 120 ) );
-		$key   = 'citecue_budget_' . (int) floor( time() / MINUTE_IN_SECONDS );
+		return $this->consume_minute_budget( 'citecue_budget_', apply_filters( 'citecue_lookup_budget', 120 ) );
+	}
+
+	/**
+	 * Consumes one unit of a per-minute counter, as close to atomically as the
+	 * site's object cache allows.
+	 *
+	 * Read-then-write is a race (PR #10 review): concurrent requests all read
+	 * the same count, all find themselves under the limit, and all proceed, so
+	 * the ceiling can be overshot by roughly the concurrency. `wp_cache_incr()`
+	 * is a single operation on the backing store, so where a persistent object
+	 * cache exists the count is exact.
+	 *
+	 * Without one there is nothing to be exact with — the options table has no
+	 * atomic increment reachable through the transient API — so that path stays
+	 * best-effort by necessity, and both callers are rate limits whose failure
+	 * mode is a bounded overshoot rather than an unbounded one. Shared by both
+	 * budgets so they cannot drift apart on this.
+	 *
+	 * @param string $prefix Transient/cache key prefix, including the trailing separator.
+	 * @param int    $limit  Units allowed in one minute.
+	 * @return bool Whether a unit was available.
+	 */
+	private function consume_minute_budget( $prefix, $limit ) {
+		$limit = max( 1, (int) $limit );
+		$key   = $prefix . (int) floor( time() / MINUTE_IN_SECONDS );
+
+		if ( wp_using_ext_object_cache() ) {
+			wp_cache_add( $key, 0, 'citecue', 2 * MINUTE_IN_SECONDS );
+			$count = wp_cache_incr( $key, 1, 'citecue' );
+			// False means the entry was evicted between the add and the
+			// increment. A fresh bucket is the safe reading: refusing here
+			// would stop serving over a cache eviction.
+			return false === $count || $count <= $limit;
+		}
+
 		$count = (int) get_transient( $key );
 		if ( $count >= $limit ) {
 			return false;
@@ -296,14 +330,7 @@ class Citecue_Cache {
 		 *
 		 * @param int $limit Default 20.
 		 */
-		$limit = max( 1, (int) apply_filters( 'citecue_seo_head_schedule_budget', 20 ) );
-		$key   = 'citecue_shb_' . (int) floor( time() / MINUTE_IN_SECONDS );
-		$count = (int) get_transient( $key );
-		if ( $count >= $limit ) {
-			return false;
-		}
-		set_transient( $key, $count + 1, 2 * MINUTE_IN_SECONDS );
-		return true;
+		return $this->consume_minute_budget( 'citecue_shb_', apply_filters( 'citecue_seo_head_schedule_budget', 20 ) );
 	}
 
 	/**

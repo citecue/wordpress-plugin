@@ -222,7 +222,7 @@ A human page view with metadata switched off does no HTTP, no extra database que
 For a crawler request the cost is one API call, with a 3 s timeout, and only when the local cache cannot answer: optimized bodies are cached for 24 h and revalidated with an ETag, misses are negative-cached for 60 s, and llms.txt is treated as fresh for 5 minutes. A repeat crawl of a cached page is a 304, not a re-download.
 
 - **A persistent object cache is recommended.** Cached bodies are transients. With Redis or Memcached they never touch the database. Without one they are rows in `wp_options` — full HTML documents, one per crawled URL, for up to 24 h. They are not autoloaded, so they cost nothing per request, but a heavily crawled site can hold tens of megabytes there until WordPress's twice-daily transient cleanup runs.
-- **The outbound-call ceiling is per site, not per path.** The 120/minute budget covers crawler lookups and llms.txt together, so no mix of traffic can exceed it.
+- **The outbound-call ceiling is per site, not per path.** The 120/minute budget covers crawler lookups, llms.txt and metadata refreshes together, so no mix of traffic can exceed it. Queueing a metadata refresh has its own, separate per-minute cap (20), because that one is spent on the render path where a visitor chooses how many URLs to ask about.
 
 ## What happens if CiteCue is unavailable
 

@@ -193,6 +193,26 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A dot or a space in the parameter name is the bypass this had to survive:
+	 * parse_str() reports `x.1` as `x_1`, so a strip built on removing the
+	 * names it reports would ask for a name the URL does not contain and leave
+	 * the real one in place — unbounded cache keys again.
+	 *
+	 * @return void
+	 */
+	public function test_query_names_that_parse_str_would_rewrite_are_still_stripped() {
+		$this->configure_delivery();
+		$this->fake_visitor_request( '/?x.1=abcdef&y%20z=1' );
+
+		$url = Citecue_Seo_Head::lookup_url();
+
+		$this->assertStringNotContainsString( 'abcdef', $url );
+		$this->assertStringNotContainsString( 'x.1', $url );
+		$this->assertStringNotContainsString( 'y%20z', $url );
+		$this->assertStringNotContainsString( '?', $url );
+	}
+
+	/**
 	 * Stripping must not break a plain-permalink site, where the query string
 	 * is how a page is addressed at all.
 	 *

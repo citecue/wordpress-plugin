@@ -70,8 +70,13 @@ class Test_Citecue_Woocommerce_Exclusions extends Citecue_Test_Case {
 	public function test_store_pages_are_never_enriched( $page ) {
 		$this->requires_stub();
 
-		$this->fake_visitor_request( '/checkout/order-received/42/?key=wc_order_secret' );
+		// A URL that actually resolves. `/checkout/order-received/42/` is a 404
+		// on this test site, and the injector declines a 404 several checks
+		// before it reaches the store-page rule — so the assertion below would
+		// have held with the WooCommerce exclusion deleted (PR #10 review).
+		$this->fake_visitor_request( '/a-product/?key=wc_order_secret' );
 		Citecue_Woocommerce_Stub::pretend( $page );
+		$this->assertFalse( is_404(), 'The request must resolve, or this proves nothing about the store-page rule.' );
 
 		$decision = $this->seo_head()->decide();
 

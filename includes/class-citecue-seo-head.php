@@ -352,18 +352,31 @@ class Citecue_Seo_Head {
 			return $url;
 		}
 
-		$pairs = array();
-		parse_str( $query, $pairs );
-
+		// Split the query string by hand rather than with parse_str(), and keep
+		// what is allowed rather than removing what is not (PR #10 review).
+		// parse_str() rewrites `.` and space in a parameter name to `_`, so it
+		// reports `x_1` for a parameter literally named `x.1` — and a removal
+		// list built from those names asks remove_query_arg() to drop something
+		// the URL does not contain, leaving the real parameter in place. That
+		// is the whole bypass this function exists to prevent, so it is built
+		// the other way round: an unrecognized name is not removed, it is
+		// simply never copied across, and a name this code cannot parse can
+		// therefore never survive.
 		$allowed = self::allowed_query_vars();
-		$drop    = array();
-		foreach ( array_keys( $pairs ) as $key ) {
-			if ( ! in_array( (string) $key, $allowed, true ) ) {
-				$drop[] = (string) $key;
+		$keep    = array();
+		foreach ( explode( '&', $query ) as $pair ) {
+			if ( '' === $pair ) {
+				continue;
+			}
+			$name = urldecode( explode( '=', $pair, 2 )[0] );
+			if ( in_array( $name, $allowed, true ) ) {
+				$keep[] = $pair;
 			}
 		}
 
-		return $drop ? (string) remove_query_arg( $drop, $url ) : $url;
+		$base = explode( '?', $url, 2 )[0];
+
+		return $keep ? $base . '?' . implode( '&', $keep ) : $base;
 	}
 
 	/**
