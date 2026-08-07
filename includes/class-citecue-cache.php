@@ -206,8 +206,10 @@ class Citecue_Cache {
 	 * Without one there is nothing to be exact with — the options table has no
 	 * atomic increment reachable through the transient API — so that path stays
 	 * best-effort by necessity, and both callers are rate limits whose failure
-	 * mode is a bounded overshoot rather than an unbounded one. Shared by both
-	 * budgets so they cannot drift apart on this.
+	 * mode is a bounded overshoot rather than an unbounded one. It is also
+	 * where a failed increment lands, so no failure of the fast path can ever
+	 * answer "allowed" without counting something. Shared by both budgets so
+	 * they cannot drift apart on this.
 	 *
 	 * @param string $prefix Transient/cache key prefix, including the trailing separator.
 	 * @param int    $limit  Units allowed in one minute.
@@ -220,10 +222,15 @@ class Citecue_Cache {
 		if ( wp_using_ext_object_cache() ) {
 			wp_cache_add( $key, 0, 'citecue', 2 * MINUTE_IN_SECONDS );
 			$count = wp_cache_incr( $key, 1, 'citecue' );
-			// False means the entry was evicted between the add and the
-			// increment. A fresh bucket is the safe reading: refusing here
-			// would stop serving over a cache eviction.
-			return false === $count || $count <= $limit;
+			if ( false !== $count ) {
+				return $count <= $limit;
+			}
+			// The increment failed: the entry was evicted between the add and
+			// the increment, or the backend is not answering. Fall through to
+			// the counter below rather than reading it as a fresh bucket
+			// (CodeRabbit review) — a backend failing every increment would
+			// then return "allowed" every time and remove the ceiling
+			// altogether, which is the one outcome a rate limit may not have.
 		}
 
 		$count = (int) get_transient( $key );

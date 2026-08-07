@@ -259,6 +259,27 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The budget hands out exactly its limit and then refuses. Worth pinning
+	 * directly: both per-minute ceilings share this counter, and a rate limit
+	 * that answers "allowed" one time too many is a rate limit that can answer
+	 * it every time.
+	 *
+	 * @return void
+	 */
+	public function test_the_schedule_budget_stops_at_its_limit() {
+		add_filter( 'citecue_seo_head_schedule_budget', static fn() => 3 );
+
+		$granted = 0;
+		for ( $i = 0; $i < 10; $i++ ) {
+			if ( $this->plugin->cache->consume_seo_head_schedule_budget() ) {
+				++$granted;
+			}
+		}
+
+		$this->assertSame( 3, $granted );
+	}
+
+	/**
 	 * The background worker stores what CiteCue returns.
 	 *
 	 * @return void
