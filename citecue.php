@@ -3,7 +3,7 @@
  * Plugin Name:       CiteCue AI Auto-Fix
  * Plugin URI:        https://github.com/citecue/wordpress-plugin
  * Description:       Serves CiteCue-optimized versions of your pages to AI bots and crawlers, adds CiteCue's enriched SEO metadata to your live pages, publishes your llms.txt, and lets CiteCue push brand-building draft content into WordPress.
- * Version:           1.1.0
+ * Version:           1.1.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CiteCue
@@ -31,12 +31,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * The copy that loses the race does nothing and says so, which turns a white
  * screen into an admin notice naming the directory to delete.
+ *
+ * The notice belongs on the Plugins screen and nowhere else: deleting a plugin
+ * directory is a Plugins-screen job, and nothing about this is urgent enough to
+ * follow an administrator through the rest of their dashboard.
  */
 if ( defined( 'CITECUE_VERSION' ) ) {
 	add_action(
 		'admin_notices',
 		static function () {
 			if ( ! current_user_can( 'activate_plugins' ) ) {
+				return;
+			}
+			$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+			if ( ! $screen || 'plugins' !== $screen->id ) {
 				return;
 			}
 			printf(
@@ -56,7 +64,7 @@ if ( defined( 'CITECUE_VERSION' ) ) {
 	return;
 }
 
-define( 'CITECUE_VERSION', '1.1.0' );
+define( 'CITECUE_VERSION', '1.1.1' );
 define( 'CITECUE_PLUGIN_FILE', __FILE__ );
 define( 'CITECUE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 

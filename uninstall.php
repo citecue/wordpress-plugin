@@ -20,6 +20,9 @@ delete_option( 'citecue_projects_cache' );
 delete_option( 'citecue_last_config_at' );
 delete_option( 'citecue_install_verified' );
 
+// One row per administrator who dismissed the reconnect notice.
+delete_metadata( 'user', 0, 'citecue_dismissed_seo_head_reconnect', '', true );
+
 delete_transient( 'citecue_circuit' );
 delete_transient( 'citecue_ingest_rate' );
 delete_transient( 'citecue_connect_state' );

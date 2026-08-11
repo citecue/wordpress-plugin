@@ -194,6 +194,17 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * Deleting a plugin directory happens on the Plugins screen, and the notice
+	 * asks for nothing that can be done anywhere else — so that is the only
+	 * screen it appears on.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_stays_on_the_plugins_screen() {
+		$this->assertSame( '', $this->render_duplicate_notice_as( 'administrator', 'dashboard' ) );
+	}
+
+	/**
 	 * Loads the main file a second time — which is the state the duplicate
 	 * copy boots into — and renders what it hooked onto `admin_notices`.
 	 *
@@ -203,19 +214,25 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 * null outside a genuine admin request. Isolating the hook keeps this a
 	 * test of the guard rather than of whatever else happens to be active.
 	 *
-	 * @param string $role Role of the user viewing the admin screen.
+	 * @param string $role      Role of the user viewing the admin screen.
+	 * @param string $screen_id Screen being viewed.
 	 * @return string Rendered notice markup.
 	 */
-	private function render_duplicate_notice_as( $role ) {
+	private function render_duplicate_notice_as( $role, $screen_id = 'plugins' ) {
 		remove_all_actions( 'admin_notices' );
 
 		require dirname( __DIR__, 2 ) . '/citecue.php';
 
 		wp_set_current_user( self::factory()->user->create( array( 'role' => $role ) ) );
+		set_current_screen( $screen_id );
 
 		ob_start();
 		do_action( 'admin_notices' );
-		return ob_get_clean();
+		$notice = ob_get_clean();
+
+		$GLOBALS['current_screen'] = null;
+
+		return $notice;
 	}
 
 	/**
@@ -239,6 +256,21 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 		// installation's result as if it were the new one's.
 		$this->assertFalse( get_option( Citecue_Connect::VERIFY_OPTION ) );
 		$this->assertFalse( wp_next_scheduled( Citecue_Plugin::CRON_HOOK ) );
+	}
+
+	/**
+	 * Dismissals are one row per administrator, in a table nobody else cleans
+	 * up — so they go with everything else rather than outliving the plugin.
+	 *
+	 * @return void
+	 */
+	public function test_uninstall_removes_dismissed_notices() {
+		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		update_user_meta( $user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', time() );
+
+		$this->run_uninstall();
+
+		$this->assertEmpty( get_user_meta( $user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', true ) );
 	}
 
 	/**
