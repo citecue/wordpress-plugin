@@ -21,6 +21,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Citecue_Admin {
 
 	/**
+	 * User-option prefix recording a notice this user has dismissed.
+	 *
+	 * A user option rather than user meta, because on multisite the usermeta
+	 * table is shared across the whole network while the condition these
+	 * notices report on comes from per-site options. Stored as meta, one
+	 * administrator dismissing the prompt on one site in a network would
+	 * silence an unrelated, still-true prompt on all the others;
+	 * update_user_option() prefixes the key with the current blog's, so each
+	 * site gets its own answer.
+	 */
+	const DISMISSED_OPTION_PREFIX = 'citecue_dismissed_';
+
+	/**
 	 * Plugin container.
 	 *
 	 * @var Citecue_Plugin
@@ -45,6 +58,7 @@ class Citecue_Admin {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_init', array( $this, 'maybe_claim_connect' ) );
+		add_action( 'admin_init', array( $this, 'maybe_dismiss_notice' ) );
 		add_action( 'admin_notices', array( $this, 'notices' ) );
 		add_action( 'admin_post_citecue_connect_start', array( $this, 'handle_connect_start' ) );
 		add_action( 'admin_post_citecue_disconnect', array( $this, 'handle_disconnect' ) );
@@ -119,17 +133,45 @@ class Citecue_Admin {
 	}
 
 	/**
-	 * Admin notices: action feedback plus a persistent auth-failure warning.
+	 * Whether the screen being rendered is one of the plugin's own.
+	 *
+	 * This plugin has no business putting messages on the comment queue, the
+	 * media library or anyone's post editor, so every notice it emits is gated
+	 * on this. Two screens qualify: the settings page the message is about, and
+	 * the Plugins list, which is where an administrator looks when a plugin
+	 * needs attention and the only screen on which some of these are actionable.
+	 *
+	 * @return bool
+	 */
+	private function is_plugin_screen() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen ) {
+			return false;
+		}
+
+		$id = (string) $screen->id;
+
+		return 'plugins' === $id || false !== strpos( $id, 'citecue' );
+	}
+
+	/**
+	 * Admin notices: action feedback plus the two conditions worth interrupting
+	 * an administrator over.
+	 *
+	 * Confined to the plugin's own screens — see is_plugin_screen(). Nothing
+	 * here is urgent enough to follow someone around their whole dashboard, and
+	 * the settings screen states all of it a second time in its status card, so
+	 * a dismissed or unseen notice costs no information.
 	 *
 	 * @return void
 	 */
 	public function notices() {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( 'manage_options' ) || ! $this->is_plugin_screen() ) {
 			return;
 		}
 
 		if ( get_option( 'citecue_auth_failed' ) ) {
-			echo '<div class="notice notice-error"><p><strong>' . esc_html__( 'CiteCue:', 'citecue-ai-auto-fix' ) . '</strong> '
+			echo '<div class="notice notice-error is-dismissible"><p><strong>' . esc_html__( 'CiteCue:', 'citecue-ai-auto-fix' ) . '</strong> '
 				. esc_html__( 'the API key was rejected, so optimized pages are not being served to AI crawlers. Update the key in the CiteCue settings.', 'citecue-ai-auto-fix' )
 				. ' <a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Open settings', 'citecue-ai-auto-fix' ) . '</a></p></div>';
 		}
@@ -183,10 +225,11 @@ class Citecue_Admin {
 	 * CiteCue learns the capability only from the connect exchange, so a site
 	 * that connected before this release injects enriched metadata while the
 	 * app still reports the channel as unable to — and tells the customer their
-	 * "Live" fix is not reaching human visitors. One reconnect fixes it. Shown
-	 * on the Plugins and CiteCue screens only: it is worth acting on, but it is
-	 * not an error, and it has no business following an administrator around
-	 * their whole dashboard.
+	 * "Live" fix is not reaching human visitors. One reconnect fixes it.
+	 *
+	 * It is advice, not an error, so it can be turned off for good: the same
+	 * state is on the settings screen's status card either way, and a message
+	 * an administrator has read and decided against should not keep arriving.
 	 *
 	 * @return void
 	 */
@@ -194,10 +237,7 @@ class Citecue_Admin {
 		if ( ! $this->plugin->settings->needs_seo_head_reconnect() ) {
 			return;
 		}
-
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		$here   = $screen ? (string) $screen->id : '';
-		if ( 'plugins' !== $here && false === strpos( $here, 'citecue' ) ) {
+		if ( $this->notice_is_dismissed( 'seo_head_reconnect' ) ) {
 			return;
 		}
 
@@ -211,9 +251,77 @@ class Citecue_Admin {
 				<strong><?php esc_html_e( 'CiteCue:', 'citecue-ai-auto-fix' ); ?></strong>
 				<?php echo esc_html( $message ); ?>
 			</p>
-			<p><?php $this->action_button( 'citecue_connect_start', __( 'Reconnect to CiteCue', 'citecue-ai-auto-fix' ) ); ?></p>
+			<p>
+				<?php $this->action_button( 'citecue_connect_start', __( 'Reconnect to CiteCue', 'citecue-ai-auto-fix' ) ); ?>
+				<a href="<?php echo esc_url( $this->dismiss_url( 'seo_head_reconnect' ) ); ?>"><?php esc_html_e( 'Dismiss permanently', 'citecue-ai-auto-fix' ); ?></a>
+			</p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Whether this user has dismissed a notice for good.
+	 *
+	 * Per user rather than per site: one administrator deciding they do not
+	 * want to be told again is not a decision to make on their colleagues'
+	 * behalf. Per site as well as per user — see DISMISSED_OPTION_PREFIX.
+	 *
+	 * @param string $notice Notice key.
+	 * @return bool
+	 */
+	private function notice_is_dismissed( $notice ) {
+		return (bool) get_user_option( self::DISMISSED_OPTION_PREFIX . $notice, get_current_user_id() );
+	}
+
+	/**
+	 * The link that dismisses a notice for good.
+	 *
+	 * @param string $notice Notice key.
+	 * @return string
+	 */
+	private function dismiss_url( $notice ) {
+		return wp_nonce_url(
+			add_query_arg( 'citecue_dismiss', $notice, $this->current_admin_url() ),
+			'citecue_dismiss_' . $notice
+		);
+	}
+
+	/**
+	 * The admin URL currently being rendered, for links that come back here.
+	 *
+	 * @return string
+	 */
+	private function current_admin_url() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+
+		return ( $screen && 'plugins' === $screen->id ) ? admin_url( 'plugins.php' ) : $this->settings_url();
+	}
+
+	/**
+	 * Records a dismissal and reloads the screen without the query arguments.
+	 *
+	 * @return void
+	 */
+	public function maybe_dismiss_notice() {
+		if ( ! isset( $_GET['citecue_dismiss'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- the nonce is checked below, once there is something to check it against.
+			return;
+		}
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$notice = sanitize_key( wp_unslash( $_GET['citecue_dismiss'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- checked on the next line.
+		check_admin_referer( 'citecue_dismiss_' . $notice );
+
+		if ( 'seo_head_reconnect' !== $notice ) {
+			return;
+		}
+
+		update_user_option( get_current_user_id(), self::DISMISSED_OPTION_PREFIX . $notice, time() );
+
+		$back = wp_get_referer();
+		wp_safe_redirect( $back ? remove_query_arg( array( 'citecue_dismiss', '_wpnonce' ), $back ) : $this->settings_url() );
+		exit;
 	}
 
 	/**

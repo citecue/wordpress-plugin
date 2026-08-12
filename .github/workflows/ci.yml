@@ -117,6 +117,13 @@ jobs:
       - name: Run the test suite with the WooCommerce store rules active
         run: composer run test:woocommerce
 
+      # Two of this plugin's storage decisions are only wrong on multisite —
+      # a network-wide usermeta key standing in for a per-site one, and a
+      # notice hook that does not fire in Network Admin. Neither is visible to
+      # a single-site run.
+      - name: Run the test suite as a multisite network
+        run: composer run test:multisite
+
   test-woocommerce:
     name: WooCommerce integration
     runs-on: ubuntu-latest

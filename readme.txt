@@ -1,26 +1,36 @@
 === CiteCue AI Auto-Fix ===
 Contributors: citecue
-Tags: ai, llms.txt, gptbot, ai-seo, woocommerce
+Tags: ai, ai-crawlers, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Serve AI-optimized versions of your pages to AI bots and crawlers, enrich your live pages' SEO metadata, publish your llms.txt, and receive draft content from CiteCue.
+Answers AI crawlers with a CiteCue-optimized version of the page they asked for, and fills only the metadata gaps your SEO plugin leaves behind.
 
 == Description ==
 
-CiteCue AI Auto-Fix connects your WordPress site to CiteCue:
+CiteCue AI Auto-Fix is the WordPress end of CiteCue. It decides, per request, which version of a page WordPress returns — the optimized one to a recognised AI crawler, your normal page to everyone else — and it can do that only from inside WordPress, before the theme renders.
 
-* **AI crawler middleware** — when an AI bot or crawler (GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User and more) requests a page, the plugin serves the CiteCue-optimized version of that page. Human visitors always see your normal site. Any miss, timeout or outage passes straight through to the normal page.
-* **Enriched page metadata** — adds CiteCue's title, meta description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them on the page a human sees. It fills gaps only: any tag WordPress, your theme or your SEO plugin already outputs is left exactly as it is, so there is never a second title or canonical.
-* **llms.txt** — publishes the llms.txt file CiteCue generates for your brand at your site root.
+* **Per-request delivery to AI crawlers** — when GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User or any other agent in the crawler registry requests a page, the plugin returns the CiteCue-optimized version of that URL. Human visitors always see your normal site, and optimized responses are never cached for regular traffic. Any miss, timeout or outage passes straight through to the normal page.
+* **Gap-filling page metadata** — adds CiteCue's title, meta description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them on the page a human sees. It fills gaps only: it reads what your theme, WordPress and your SEO plugin actually printed into `<head>` and adds only what none of them emitted, so there is never a second title or canonical.
+* **llms.txt** — serves the llms.txt file CiteCue maintains for your brand at your site root, refreshed from CiteCue rather than regenerated here.
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
 * **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
 
 This plugin requires a CiteCue account (citecue.com) and does nothing until you connect one. See "External services" below for exactly what is sent where.
+
+= What the plugin actually does =
+
+llms.txt is one of the four features above, and CiteCue writes that file — the plugin serves it. The rest of the code is about what happens on a live request:
+
+* **It serves a different representation per requester, safely.** Crawler matching runs against a registry that refreshes daily, so an agent launched last week is recognised without a plugin update. A logged-in user, a cart URL, a WooCommerce endpoint or a cart-modifying link is never intercepted. A circuit breaker, a per-minute lookup budget, negative caching and a stale-while-revalidate cache mean an outage at CiteCue costs a passthrough, never a broken page or a slow one.
+* **It composes with your SEO plugin rather than replacing it.** The metadata layer detects what was actually printed into `<head>` rather than looking for particular plugins, so it behaves correctly beside Yoast, Rank Math, a plugin nobody has heard of, or none at all. Every tag it adds carries a `data-citecue` attribute, so View Source tells you exactly which ones came from CiteCue.
+* **Nothing from the API is trusted as markup.** Every returned tag is parsed, matched against an allowlist of shapes and rebuilt from escaped values, with structured data re-encoded so it cannot escape its own script element.
+* **It never makes a visitor wait on a third party.** The render path reads cache only; a URL with nothing cached yet renders untouched and the fetch is queued to WP-Cron.
+* **Content flows back in.** The signed `citecue/v1` endpoint is how CiteCue delivers new content into WordPress — as drafts, with replayed signatures rejected — so the loop from "this page is missing" to "this page exists" closes without anyone copying and pasting.
 
 == Installation ==
 
@@ -108,6 +118,9 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 
 == Upgrade Notice ==
 
+= 1.1.1 =
+Fixes a fatal error on sites that still have the old citecue/ folder installed alongside this plugin. Admin notices now appear only on the Plugins and CiteCue screens.
+
 = 1.1.0 =
 Adds enriched page metadata for live pages. Existing connections need one reconnect before CiteCue knows this site can do it — Settings → CiteCue will ask.
 
@@ -115,6 +128,15 @@ Adds enriched page metadata for live pages. Existing connections need one reconn
 The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploading the zip from GitHub, delete the old citecue folder after updating — your settings and connection are stored in the database and carry over untouched.
 
 == Changelog ==
+
+= 1.1.1 =
+* Admin notices are confined to the Plugins screen and the CiteCue settings screen. The rejected-key warning and the duplicate-install warning used to print on every screen in the dashboard; neither asks for anything that can be done anywhere else, and the settings screen states both a second time in its status card.
+* The reconnect prompt can now be dismissed permanently, per user and per site. It is advice rather than an error, and an administrator who has read it and decided against it should not keep being told. On multisite the dismissal is scoped to the site it was made on, since the condition it reports on is per-site while WordPress stores user metadata network-wide.
+* Fixed a fatal error on a site that still has the pre-WordPress.org copy in a citecue/ folder alongside this one. That copy is 1.0.0, which predates the duplicate-install guard and loads its classes unconditionally — and WordPress always includes citecue-ai-auto-fix/ first, so 1.0.0 was always the copy that redeclared them and took the site down. This copy now stands aside for it and says which folder to delete, so the site keeps running either way.
+* Both duplicate-install warnings now also appear in Network Admin → Plugins. A network-activated copy can only be removed from there, and the hook they were on does not fire anywhere in Network Admin — so on multisite the warning was missing from the one screen where a super admin could act on it.
+* Uninstalling from a network now clears dismissal records for every site, not just the one running the uninstall. WordPress stores user metadata in a single table shared by the whole network, so anything left there is left for good.
+* Uninstall removes the dismissal records along with everything else.
+* readme: shorter summary, and the description now says plainly what this plugin does that a static llms.txt generator does not.
 
 = 1.1.0 =
 * New: enriched page metadata. CiteCue's title, meta description, OpenGraph, canonical and structured-data tags are added to your live pages, so search engines and AI answer engines see them, not just AI crawlers. Uses CiteCue's `/api/delivery/v2/seo-head` endpoint.

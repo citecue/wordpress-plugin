@@ -194,6 +194,152 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * Deleting a plugin directory happens on the Plugins screen, and the notice
+	 * asks for nothing that can be done anywhere else — so that is the only
+	 * screen it appears on.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_stays_on_the_plugins_screen() {
+		$this->assertSame( '', $this->render_duplicate_notice_as( 'administrator', 'dashboard' ) );
+	}
+
+	/**
+	 * A network-activated copy can only be deactivated from Network Admin →
+	 * Plugins, and `admin_notices` does not fire anywhere in Network Admin — so
+	 * scoping to that one hook hides the warning from the only screen where a
+	 * super admin can act on it.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_reaches_network_admin() {
+		$notice = $this->render_duplicate_notice_as( 'administrator', 'plugins-network', 'network_admin_notices' );
+
+		$this->assertStringContainsString( 'installed twice', $notice );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_the_legacy_notice_reaches_network_admin() {
+		$this->install_legacy_copy();
+
+		$notice = $this->render_duplicate_notice_as( 'administrator', 'plugins-network', 'network_admin_notices' );
+
+		$this->assertStringContainsString( 'An older copy in citecue/', $notice );
+	}
+
+	/**
+	 * Network Admin has its own dashboard and its own settings screens, and the
+	 * notice has no more business on those than on the per-site ones.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_stays_off_the_network_dashboard() {
+		$notice = $this->render_duplicate_notice_as( 'administrator', 'dashboard-network', 'network_admin_notices' );
+
+		$this->assertSame( '', $notice );
+	}
+
+	/**
+	 * The one duplicate this plugin has actually shipped, and the one the guard
+	 * above cannot cover.
+	 *
+	 * The citecue/ directory only ever held 1.0.0, which predates the guard and
+	 * so loads its classes unconditionally. WordPress sorts active_plugins and
+	 * '-' sorts before
+	 * '/', so citecue-ai-auto-fix/ is always included first — meaning 1.0.0 is
+	 * always the copy that redeclares and fatals, and it has no guard with
+	 * which to stand down. This copy has to be the one that yields.
+	 *
+	 * @return void
+	 */
+	public function test_this_copy_yields_to_a_legacy_copy_that_cannot_yield() {
+		$this->install_legacy_copy();
+
+		$notice = $this->render_duplicate_notice_as( 'administrator' );
+
+		$this->assertStringContainsString( 'An older copy in citecue/', $notice );
+	}
+
+	/**
+	 * A deleted directory can outlive its active_plugins entry. Yielding to a
+	 * copy that is not there any more would leave the site running neither.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_entry_for_a_deleted_copy_is_ignored() {
+		$this->install_legacy_copy( false );
+
+		$notice = $this->render_duplicate_notice_as( 'administrator' );
+
+		$this->assertStringNotContainsString( 'An older copy in citecue/', $notice );
+	}
+
+	/**
+	 * Puts a pre-WordPress.org copy in active_plugins, optionally with the file
+	 * on disk to match.
+	 *
+	 * Both halves are stated, including the absent one: "the entry is stale"
+	 * means the file is not there, and a test that only assumes that is at the
+	 * mercy of whatever a previous run left behind. The directory removed here
+	 * can only ever be this helper's own leftover — WP_PLUGIN_DIR under the
+	 * test suite is the vendored WordPress, which ships with no plugins at all.
+	 *
+	 * @param bool $on_disk Whether the plugin file also exists.
+	 * @return void
+	 */
+	private function install_legacy_copy( $on_disk = true ) {
+		update_option( 'active_plugins', array( 'citecue/citecue.php' ) );
+
+		// Registered before the branch, so the cleanup runs either way.
+		$this->legacy_copy_path = WP_PLUGIN_DIR . '/citecue';
+		$this->remove_legacy_copy();
+
+		if ( ! $on_disk ) {
+			$this->assertFileDoesNotExist( $this->legacy_copy_path . '/citecue.php' );
+			return;
+		}
+
+		mkdir( $this->legacy_copy_path, 0777, true );
+		file_put_contents( $this->legacy_copy_path . '/citecue.php', "<?php\n// Test double for the 1.0.0 release.\n" );
+	}
+
+	/**
+	 * Directory install_legacy_copy() owns, to remove afterwards.
+	 *
+	 * @var string
+	 */
+	private $legacy_copy_path = '';
+
+	/**
+	 * Leaves the plugins directory as it was found.
+	 *
+	 * @return void
+	 */
+	private function remove_legacy_copy() {
+		if ( '' === $this->legacy_copy_path ) {
+			return;
+		}
+
+		if ( file_exists( $this->legacy_copy_path . '/citecue.php' ) ) {
+			unlink( $this->legacy_copy_path . '/citecue.php' );
+		}
+		if ( is_dir( $this->legacy_copy_path ) ) {
+			rmdir( $this->legacy_copy_path );
+		}
+	}
+
+	/**
+	 * @return void
+	 */
+	public function tear_down() {
+		$this->remove_legacy_copy();
+		$this->legacy_copy_path = '';
+		parent::tear_down();
+	}
+
+	/**
 	 * Loads the main file a second time — which is the state the duplicate
 	 * copy boots into — and renders what it hooked onto `admin_notices`.
 	 *
@@ -203,19 +349,37 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 * null outside a genuine admin request. Isolating the hook keeps this a
 	 * test of the guard rather than of whatever else happens to be active.
 	 *
-	 * @param string $role Role of the user viewing the admin screen.
+	 * @param string $role      Role of the user viewing the admin screen.
+	 * @param string $screen_id Screen being viewed.
+	 * @param string $hook      Notice hook the screen fires: WordPress fires
+	 *                          `admin_notices` and `network_admin_notices` in
+	 *                          mutually exclusive branches, never both.
 	 * @return string Rendered notice markup.
 	 */
-	private function render_duplicate_notice_as( $role ) {
+	private function render_duplicate_notice_as( $role, $screen_id = 'plugins', $hook = 'admin_notices' ) {
 		remove_all_actions( 'admin_notices' );
+		remove_all_actions( 'network_admin_notices' );
 
 		require dirname( __DIR__, 2 ) . '/citecue.php';
 
-		wp_set_current_user( self::factory()->user->create( array( 'role' => $role ) ) );
+		$user_id = self::factory()->user->create( array( 'role' => $role ) );
+		// On multisite `activate_plugins` maps through `manage_network_plugins`,
+		// so a site administrator does not have it — which is correct, since a
+		// network-activated duplicate is only a super admin's to remove. The
+		// notice is gated on that capability, so the viewer has to hold it.
+		if ( is_multisite() && 'administrator' === $role ) {
+			grant_super_admin( $user_id );
+		}
+		wp_set_current_user( $user_id );
+		set_current_screen( $screen_id );
 
 		ob_start();
-		do_action( 'admin_notices' );
-		return ob_get_clean();
+		do_action( $hook );
+		$notice = ob_get_clean();
+
+		$GLOBALS['current_screen'] = null;
+
+		return $notice;
 	}
 
 	/**
@@ -239,6 +403,54 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 		// installation's result as if it were the new one's.
 		$this->assertFalse( get_option( Citecue_Connect::VERIFY_OPTION ) );
 		$this->assertFalse( wp_next_scheduled( Citecue_Plugin::CRON_HOOK ) );
+	}
+
+	/**
+	 * Dismissals are one row per administrator, in a table nobody else cleans
+	 * up — so they go with everything else rather than outliving the plugin.
+	 *
+	 * @return void
+	 */
+	public function test_uninstall_removes_dismissed_notices() {
+		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		update_user_option( $user_id, Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', time() );
+
+		$this->run_uninstall();
+
+		$this->assertEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', $user_id ) );
+	}
+
+	/**
+	 * The usermeta table is shared by a whole network, and WordPress includes
+	 * uninstall.php once. A dismissal made on any other site in the network is
+	 * therefore still ours to remove — nothing else ever will, and unlike the
+	 * per-site options tables, this one outlives every site that wrote to it.
+	 *
+	 * @group multisite
+	 * @return void
+	 */
+	public function test_uninstall_removes_dismissals_from_every_site() {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'Requires a multisite install.' );
+		}
+
+		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		$other   = self::factory()->blog->create();
+		$key     = Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect';
+
+		switch_to_blog( $other );
+		update_user_option( $user_id, $key, time() );
+		restore_current_blog();
+		update_user_option( $user_id, $key, time() );
+
+		$this->run_uninstall();
+
+		switch_to_blog( $other );
+		$elsewhere = get_user_option( $key, $user_id );
+		restore_current_blog();
+
+		$this->assertEmpty( $elsewhere, 'The other site’s dismissal should be gone too.' );
+		$this->assertEmpty( get_user_option( $key, $user_id ) );
 	}
 
 	/**
