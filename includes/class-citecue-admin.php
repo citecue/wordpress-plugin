@@ -21,9 +21,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Citecue_Admin {
 
 	/**
-	 * User-meta key prefix recording a notice this user has dismissed.
+	 * User-option prefix recording a notice this user has dismissed.
+	 *
+	 * A user option rather than user meta, because on multisite the usermeta
+	 * table is shared across the whole network while the condition these
+	 * notices report on comes from per-site options. Stored as meta, one
+	 * administrator dismissing the prompt on one site in a network would
+	 * silence an unrelated, still-true prompt on all the others;
+	 * update_user_option() prefixes the key with the current blog's, so each
+	 * site gets its own answer.
 	 */
-	const DISMISSED_META_PREFIX = 'citecue_dismissed_';
+	const DISMISSED_OPTION_PREFIX = 'citecue_dismissed_';
 
 	/**
 	 * Plugin container.
@@ -256,13 +264,13 @@ class Citecue_Admin {
 	 *
 	 * Per user rather than per site: one administrator deciding they do not
 	 * want to be told again is not a decision to make on their colleagues'
-	 * behalf.
+	 * behalf. Per site as well as per user — see DISMISSED_OPTION_PREFIX.
 	 *
 	 * @param string $notice Notice key.
 	 * @return bool
 	 */
 	private function notice_is_dismissed( $notice ) {
-		return (bool) get_user_meta( get_current_user_id(), self::DISMISSED_META_PREFIX . $notice, true );
+		return (bool) get_user_option( self::DISMISSED_OPTION_PREFIX . $notice, get_current_user_id() );
 	}
 
 	/**
@@ -309,7 +317,7 @@ class Citecue_Admin {
 			return;
 		}
 
-		update_user_meta( get_current_user_id(), self::DISMISSED_META_PREFIX . $notice, time() );
+		update_user_option( get_current_user_id(), self::DISMISSED_OPTION_PREFIX . $notice, time() );
 
 		$back = wp_get_referer();
 		wp_safe_redirect( $back ? remove_query_arg( array( 'citecue_dismiss', '_wpnonce' ), $back ) : $this->settings_url() );

@@ -166,7 +166,7 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 	 */
 	public function test_a_dismissed_reconnect_notice_stays_dismissed() {
 		$this->owe_a_reconnect();
-		update_user_meta( $this->user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', time() );
+		update_user_option( $this->user_id, Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', time() );
 
 		$html = $this->notices_on( 'settings_page_citecue' );
 
@@ -181,7 +181,7 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 	 */
 	public function test_a_dismissal_belongs_to_the_user_who_made_it() {
 		$this->owe_a_reconnect();
-		update_user_meta( $this->user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', time() );
+		update_user_option( $this->user_id, Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', time() );
 
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 
@@ -254,7 +254,35 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 
 		$this->request_dismissal( 'seo_head_reconnect', wp_create_nonce( 'citecue_dismiss_seo_head_reconnect' ) );
 
-		$this->assertNotEmpty( get_user_meta( $this->user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', true ) );
+		$this->assertNotEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', $this->user_id ) );
+	}
+
+	/**
+	 * The usermeta table is shared across a whole multisite network, while the
+	 * condition this notice reports comes from a per-site option — so the key
+	 * has to carry this site's prefix, or dismissing it on one site in a
+	 * network silences a still-true prompt on all the others.
+	 *
+	 * Asserting on the stored key rather than switching blogs, because that is
+	 * the part a refactor back to update_user_meta() would quietly undo, and it
+	 * is checkable on a single-site install.
+	 *
+	 * @return void
+	 */
+	public function test_a_dismissal_is_scoped_to_this_site() {
+		global $wpdb;
+		$this->owe_a_reconnect();
+
+		$this->request_dismissal( 'seo_head_reconnect', wp_create_nonce( 'citecue_dismiss_seo_head_reconnect' ) );
+
+		$this->assertNotEmpty(
+			get_user_meta( $this->user_id, $wpdb->get_blog_prefix() . Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', true ),
+			'The dismissal should be stored under this blog’s prefix.'
+		);
+		$this->assertEmpty(
+			get_user_meta( $this->user_id, Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', true ),
+			'Nothing should be stored under a network-wide key.'
+		);
 	}
 
 	/**
@@ -270,7 +298,7 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		try {
 			$this->request_dismissal( 'seo_head_reconnect', 'not-a-nonce' );
 		} finally {
-			$this->assertEmpty( get_user_meta( $this->user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', true ) );
+			$this->assertEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', $this->user_id ) );
 		}
 	}
 
@@ -283,6 +311,6 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 	public function test_an_unknown_notice_key_writes_nothing() {
 		$this->request_dismissal( 'made_up', wp_create_nonce( 'citecue_dismiss_made_up' ) );
 
-		$this->assertEmpty( get_user_meta( $this->user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'made_up', true ) );
+		$this->assertEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'made_up', $this->user_id ) );
 	}
 }

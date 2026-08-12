@@ -20,8 +20,12 @@ delete_option( 'citecue_projects_cache' );
 delete_option( 'citecue_last_config_at' );
 delete_option( 'citecue_install_verified' );
 
-// One row per administrator who dismissed the reconnect notice.
-delete_metadata( 'user', 0, 'citecue_dismissed_seo_head_reconnect', '', true );
+// One row per administrator who dismissed the reconnect notice. Stored through
+// update_user_option(), so the key carries this site's table prefix — which is
+// also what scopes the delete to this site on a multisite network, matching
+// what the delete_option() calls above reach.
+global $wpdb;
+delete_metadata( 'user', 0, $wpdb->get_blog_prefix() . 'citecue_dismissed_seo_head_reconnect', '', true );
 
 delete_transient( 'citecue_circuit' );
 delete_transient( 'citecue_ingest_rate' );

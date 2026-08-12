@@ -119,7 +119,7 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 == Upgrade Notice ==
 
 = 1.1.1 =
-Admin notices now appear only on the Plugins and CiteCue screens, and the reconnect prompt can be dismissed for good. No functional change to delivery.
+Fixes a fatal error on sites that still have the old citecue/ folder installed alongside this plugin. Admin notices now appear only on the Plugins and CiteCue screens.
 
 = 1.1.0 =
 Adds enriched page metadata for live pages. Existing connections need one reconnect before CiteCue knows this site can do it — Settings → CiteCue will ask.
@@ -131,7 +131,8 @@ The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploadin
 
 = 1.1.1 =
 * Admin notices are confined to the Plugins screen and the CiteCue settings screen. The rejected-key warning and the duplicate-install warning used to print on every screen in the dashboard; neither asks for anything that can be done anywhere else, and the settings screen states both a second time in its status card.
-* The reconnect prompt can now be dismissed permanently, per user. It is advice rather than an error, and an administrator who has read it and decided against it should not keep being told.
+* The reconnect prompt can now be dismissed permanently, per user and per site. It is advice rather than an error, and an administrator who has read it and decided against it should not keep being told. On multisite the dismissal is scoped to the site it was made on, since the condition it reports on is per-site while WordPress stores user metadata network-wide.
+* Fixed a fatal error on a site that still has the pre-WordPress.org copy in a citecue/ folder alongside this one. That copy is 1.0.0, which predates the duplicate-install guard and loads its classes unconditionally — and WordPress always includes citecue-ai-auto-fix/ first, so 1.0.0 was always the copy that redeclared them and took the site down. This copy now stands aside for it and says which folder to delete, so the site keeps running either way.
 * Uninstall removes the dismissal records along with everything else.
 * readme: shorter summary, and the description now says plainly what this plugin does that a static llms.txt generator does not.
 

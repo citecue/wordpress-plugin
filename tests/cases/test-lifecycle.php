@@ -205,6 +205,84 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The one duplicate this plugin has actually shipped, and the one the guard
+	 * above cannot cover.
+	 *
+	 * The citecue/ directory only ever held 1.0.0, which predates the guard and
+	 * so loads its classes unconditionally. WordPress sorts active_plugins and
+	 * '-' sorts before
+	 * '/', so citecue-ai-auto-fix/ is always included first — meaning 1.0.0 is
+	 * always the copy that redeclares and fatals, and it has no guard with
+	 * which to stand down. This copy has to be the one that yields.
+	 *
+	 * @return void
+	 */
+	public function test_this_copy_yields_to_a_legacy_copy_that_cannot_yield() {
+		$this->install_legacy_copy();
+
+		$notice = $this->render_duplicate_notice_as( 'administrator' );
+
+		$this->assertStringContainsString( 'An older copy in citecue/', $notice );
+	}
+
+	/**
+	 * A deleted directory can outlive its active_plugins entry. Yielding to a
+	 * copy that is not there any more would leave the site running neither.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_entry_for_a_deleted_copy_is_ignored() {
+		$this->install_legacy_copy( false );
+
+		$notice = $this->render_duplicate_notice_as( 'administrator' );
+
+		$this->assertStringNotContainsString( 'An older copy in citecue/', $notice );
+	}
+
+	/**
+	 * Puts a pre-WordPress.org copy in active_plugins, optionally with the file
+	 * on disk to match. Registered for removal so the plugins directory is left
+	 * as it was found.
+	 *
+	 * @param bool $on_disk Whether the plugin file also exists.
+	 * @return void
+	 */
+	private function install_legacy_copy( $on_disk = true ) {
+		update_option( 'active_plugins', array( 'citecue/citecue.php' ) );
+
+		if ( ! $on_disk ) {
+			return;
+		}
+
+		$dir = WP_PLUGIN_DIR . '/citecue';
+		if ( ! is_dir( $dir ) ) {
+			mkdir( $dir, 0777, true );
+		}
+		file_put_contents( $dir . '/citecue.php', "<?php\n// Test double for the 1.0.0 release.\n" );
+
+		$this->legacy_copy_path = $dir;
+	}
+
+	/**
+	 * Directory created by install_legacy_copy(), to remove afterwards.
+	 *
+	 * @var string
+	 */
+	private $legacy_copy_path = '';
+
+	/**
+	 * @return void
+	 */
+	public function tear_down() {
+		if ( '' !== $this->legacy_copy_path ) {
+			@unlink( $this->legacy_copy_path . '/citecue.php' );
+			@rmdir( $this->legacy_copy_path );
+			$this->legacy_copy_path = '';
+		}
+		parent::tear_down();
+	}
+
+	/**
 	 * Loads the main file a second time — which is the state the duplicate
 	 * copy boots into — and renders what it hooked onto `admin_notices`.
 	 *
@@ -266,11 +344,11 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 */
 	public function test_uninstall_removes_dismissed_notices() {
 		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
-		update_user_meta( $user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', time() );
+		update_user_option( $user_id, Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', time() );
 
 		$this->run_uninstall();
 
-		$this->assertEmpty( get_user_meta( $user_id, Citecue_Admin::DISMISSED_META_PREFIX . 'seo_head_reconnect', true ) );
+		$this->assertEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', $user_id ) );
 	}
 
 	/**
