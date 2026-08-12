@@ -278,8 +278,13 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 
 	/**
 	 * Puts a pre-WordPress.org copy in active_plugins, optionally with the file
-	 * on disk to match. Registered for removal so the plugins directory is left
-	 * as it was found.
+	 * on disk to match.
+	 *
+	 * Both halves are stated, including the absent one: "the entry is stale"
+	 * means the file is not there, and a test that only assumes that is at the
+	 * mercy of whatever a previous run left behind. The directory removed here
+	 * can only ever be this helper's own leftover — WP_PLUGIN_DIR under the
+	 * test suite is the vendored WordPress, which ships with no plugins at all.
 	 *
 	 * @param bool $on_disk Whether the plugin file also exists.
 	 * @return void
@@ -287,35 +292,50 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	private function install_legacy_copy( $on_disk = true ) {
 		update_option( 'active_plugins', array( 'citecue/citecue.php' ) );
 
+		// Registered before the branch, so the cleanup runs either way.
+		$this->legacy_copy_path = WP_PLUGIN_DIR . '/citecue';
+		$this->remove_legacy_copy();
+
 		if ( ! $on_disk ) {
+			$this->assertFileDoesNotExist( $this->legacy_copy_path . '/citecue.php' );
 			return;
 		}
 
-		$dir = WP_PLUGIN_DIR . '/citecue';
-		if ( ! is_dir( $dir ) ) {
-			mkdir( $dir, 0777, true );
-		}
-		file_put_contents( $dir . '/citecue.php', "<?php\n// Test double for the 1.0.0 release.\n" );
-
-		$this->legacy_copy_path = $dir;
+		mkdir( $this->legacy_copy_path, 0777, true );
+		file_put_contents( $this->legacy_copy_path . '/citecue.php', "<?php\n// Test double for the 1.0.0 release.\n" );
 	}
 
 	/**
-	 * Directory created by install_legacy_copy(), to remove afterwards.
+	 * Directory install_legacy_copy() owns, to remove afterwards.
 	 *
 	 * @var string
 	 */
 	private $legacy_copy_path = '';
 
 	/**
+	 * Leaves the plugins directory as it was found.
+	 *
+	 * @return void
+	 */
+	private function remove_legacy_copy() {
+		if ( '' === $this->legacy_copy_path ) {
+			return;
+		}
+
+		if ( file_exists( $this->legacy_copy_path . '/citecue.php' ) ) {
+			unlink( $this->legacy_copy_path . '/citecue.php' );
+		}
+		if ( is_dir( $this->legacy_copy_path ) ) {
+			rmdir( $this->legacy_copy_path );
+		}
+	}
+
+	/**
 	 * @return void
 	 */
 	public function tear_down() {
-		if ( '' !== $this->legacy_copy_path ) {
-			@unlink( $this->legacy_copy_path . '/citecue.php' );
-			@rmdir( $this->legacy_copy_path );
-			$this->legacy_copy_path = '';
-		}
+		$this->remove_legacy_copy();
+		$this->legacy_copy_path = '';
 		parent::tear_down();
 	}
 
