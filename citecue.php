@@ -60,31 +60,34 @@ $citecue_legacy_is_running = ( static function () {
 } )();
 
 if ( $citecue_legacy_is_running ) {
-	add_action(
-		'admin_notices',
-		static function () {
-			if ( ! current_user_can( 'activate_plugins' ) ) {
-				return;
-			}
-			$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-			if ( ! $screen || 'plugins' !== $screen->id ) {
-				return;
-			}
-			printf(
-				'<div class="notice notice-error"><p>%s</p></div>',
-				esc_html(
-					sprintf(
-						/* translators: 1: the older plugin directory, e.g. citecue/. 2: this plugin's directory. */
-						__( 'CiteCue AI Auto-Fix is installed twice. An older copy in %1$s is the one WordPress is running, so the copy in %2$s has not loaded. Deactivate and delete the older one to switch to this version — your settings and connection are stored in the database and carry over untouched.', 'citecue-ai-auto-fix' ),
-						'citecue/',
-						dirname( plugin_basename( __FILE__ ) ) . '/'
-					)
-				)
-			);
+	$citecue_legacy_notice = static function () {
+		if ( ! current_user_can( 'activate_plugins' ) ) {
+			return;
 		}
-	);
+		// Duplicated in the guard below rather than shared through a helper:
+		// this is the one file that can legitimately be included twice, and a
+		// named function here is a redeclaration waiting to happen.
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || ( 'plugins' !== $screen->id && 'plugins-network' !== $screen->id ) ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-error"><p>%s</p></div>',
+			esc_html(
+				sprintf(
+					/* translators: 1: the older plugin directory, e.g. citecue/. 2: this plugin's directory. */
+					__( 'CiteCue AI Auto-Fix is installed twice. An older copy in %1$s is the one WordPress is running, so the copy in %2$s has not loaded. Deactivate and delete the older one to switch to this version — your settings and connection are stored in the database and carry over untouched.', 'citecue-ai-auto-fix' ),
+					'citecue/',
+					dirname( plugin_basename( __FILE__ ) ) . '/'
+				)
+			)
+		);
+	};
 
-	unset( $citecue_legacy_is_running );
+	add_action( 'admin_notices', $citecue_legacy_notice );
+	add_action( 'network_admin_notices', $citecue_legacy_notice );
+
+	unset( $citecue_legacy_is_running, $citecue_legacy_notice );
 	return;
 }
 
@@ -100,35 +103,38 @@ unset( $citecue_legacy_is_running );
  * which turns a white screen into an admin notice naming the directory to
  * delete.
  *
- * The notice belongs on the Plugins screen and nowhere else: deleting a plugin
+ * The notice belongs on a Plugins screen and nowhere else: deleting a plugin
  * directory is a Plugins-screen job, and nothing about this is urgent enough to
- * follow an administrator through the rest of their dashboard.
+ * follow an administrator through the rest of their dashboard. Both Plugins
+ * screens count, though — a network-activated copy can only be deactivated from
+ * Network Admin, and `admin_notices` does not fire there at all.
  */
 if ( defined( 'CITECUE_VERSION' ) ) {
-	add_action(
-		'admin_notices',
-		static function () {
-			if ( ! current_user_can( 'activate_plugins' ) ) {
-				return;
-			}
-			$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-			if ( ! $screen || 'plugins' !== $screen->id ) {
-				return;
-			}
-			printf(
-				'<div class="notice notice-error"><p>%s</p></div>',
-				esc_html(
-					sprintf(
-						/* translators: 1: plugin file that is running, e.g. citecue/citecue.php. 2: duplicate plugin file that did not load. */
-						__( 'CiteCue AI Auto-Fix is installed twice. WordPress is running %1$s, so the copy in %2$s did not load. Deactivate and delete whichever of the two you do not want to keep.', 'citecue-ai-auto-fix' ),
-						plugin_basename( CITECUE_PLUGIN_FILE ),
-						plugin_basename( __FILE__ )
-					)
-				)
-			);
+	$citecue_duplicate_notice = static function () {
+		if ( ! current_user_can( 'activate_plugins' ) ) {
+			return;
 		}
-	);
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || ( 'plugins' !== $screen->id && 'plugins-network' !== $screen->id ) ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-error"><p>%s</p></div>',
+			esc_html(
+				sprintf(
+					/* translators: 1: plugin file that is running, e.g. citecue/citecue.php. 2: duplicate plugin file that did not load. */
+					__( 'CiteCue AI Auto-Fix is installed twice. WordPress is running %1$s, so the copy in %2$s did not load. Deactivate and delete whichever of the two you do not want to keep.', 'citecue-ai-auto-fix' ),
+					plugin_basename( CITECUE_PLUGIN_FILE ),
+					plugin_basename( __FILE__ )
+				)
+			)
+		);
+	};
 
+	add_action( 'admin_notices', $citecue_duplicate_notice );
+	add_action( 'network_admin_notices', $citecue_duplicate_notice );
+
+	unset( $citecue_duplicate_notice );
 	return;
 }
 

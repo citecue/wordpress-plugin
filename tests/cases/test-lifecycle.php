@@ -205,6 +205,43 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A network-activated copy can only be deactivated from Network Admin →
+	 * Plugins, and `admin_notices` does not fire anywhere in Network Admin — so
+	 * scoping to that one hook hides the warning from the only screen where a
+	 * super admin can act on it.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_reaches_network_admin() {
+		$notice = $this->render_duplicate_notice_as( 'administrator', 'plugins-network', 'network_admin_notices' );
+
+		$this->assertStringContainsString( 'installed twice', $notice );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_the_legacy_notice_reaches_network_admin() {
+		$this->install_legacy_copy();
+
+		$notice = $this->render_duplicate_notice_as( 'administrator', 'plugins-network', 'network_admin_notices' );
+
+		$this->assertStringContainsString( 'An older copy in citecue/', $notice );
+	}
+
+	/**
+	 * Network Admin has its own dashboard and its own settings screens, and the
+	 * notice has no more business on those than on the per-site ones.
+	 *
+	 * @return void
+	 */
+	public function test_the_duplicate_notice_stays_off_the_network_dashboard() {
+		$notice = $this->render_duplicate_notice_as( 'administrator', 'dashboard-network', 'network_admin_notices' );
+
+		$this->assertSame( '', $notice );
+	}
+
+	/**
 	 * The one duplicate this plugin has actually shipped, and the one the guard
 	 * above cannot cover.
 	 *
@@ -294,18 +331,30 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	 *
 	 * @param string $role      Role of the user viewing the admin screen.
 	 * @param string $screen_id Screen being viewed.
+	 * @param string $hook      Notice hook the screen fires: WordPress fires
+	 *                          `admin_notices` and `network_admin_notices` in
+	 *                          mutually exclusive branches, never both.
 	 * @return string Rendered notice markup.
 	 */
-	private function render_duplicate_notice_as( $role, $screen_id = 'plugins' ) {
+	private function render_duplicate_notice_as( $role, $screen_id = 'plugins', $hook = 'admin_notices' ) {
 		remove_all_actions( 'admin_notices' );
+		remove_all_actions( 'network_admin_notices' );
 
 		require dirname( __DIR__, 2 ) . '/citecue.php';
 
-		wp_set_current_user( self::factory()->user->create( array( 'role' => $role ) ) );
+		$user_id = self::factory()->user->create( array( 'role' => $role ) );
+		// On multisite `activate_plugins` maps through `manage_network_plugins`,
+		// so a site administrator does not have it — which is correct, since a
+		// network-activated duplicate is only a super admin's to remove. The
+		// notice is gated on that capability, so the viewer has to hold it.
+		if ( is_multisite() && 'administrator' === $role ) {
+			grant_super_admin( $user_id );
+		}
+		wp_set_current_user( $user_id );
 		set_current_screen( $screen_id );
 
 		ob_start();
-		do_action( 'admin_notices' );
+		do_action( $hook );
 		$notice = ob_get_clean();
 
 		$GLOBALS['current_screen'] = null;
@@ -349,6 +398,39 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 		$this->run_uninstall();
 
 		$this->assertEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect', $user_id ) );
+	}
+
+	/**
+	 * The usermeta table is shared by a whole network, and WordPress includes
+	 * uninstall.php once. A dismissal made on any other site in the network is
+	 * therefore still ours to remove — nothing else ever will, and unlike the
+	 * per-site options tables, this one outlives every site that wrote to it.
+	 *
+	 * @group multisite
+	 * @return void
+	 */
+	public function test_uninstall_removes_dismissals_from_every_site() {
+		if ( ! is_multisite() ) {
+			$this->markTestSkipped( 'Requires a multisite install.' );
+		}
+
+		$user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
+		$other   = self::factory()->blog->create();
+		$key     = Citecue_Admin::DISMISSED_OPTION_PREFIX . 'seo_head_reconnect';
+
+		switch_to_blog( $other );
+		update_user_option( $user_id, $key, time() );
+		restore_current_blog();
+		update_user_option( $user_id, $key, time() );
+
+		$this->run_uninstall();
+
+		switch_to_blog( $other );
+		$elsewhere = get_user_option( $key, $user_id );
+		restore_current_blog();
+
+		$this->assertEmpty( $elsewhere, 'The other site’s dismissal should be gone too.' );
+		$this->assertEmpty( get_user_option( $key, $user_id ) );
 	}
 
 	/**

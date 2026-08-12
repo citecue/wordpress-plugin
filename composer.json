@@ -44,9 +44,11 @@
 		"phpcbf": "phpcbf",
 		"test": [
 			"@test:core",
-			"@test:woocommerce"
+			"@test:woocommerce",
+			"@test:multisite"
 		],
 		"test:core": "phpunit",
-		"test:woocommerce": "CITECUE_STUB_WOOCOMMERCE=1 phpunit"
+		"test:woocommerce": "CITECUE_STUB_WOOCOMMERCE=1 phpunit",
+		"test:multisite": "WP_MULTISITE=1 phpunit"
 	}
 }
