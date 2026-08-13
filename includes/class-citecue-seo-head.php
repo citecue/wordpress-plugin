@@ -12,17 +12,28 @@
  * content-parity and additive, so adding it is not cloaking, whereas serving a
  * rewritten document to a human would be.
  *
- * Four rules govern everything below.
+ * Five rules govern everything below.
  *
  * **Never emit a duplicate.** WordPress core prints `<title>` and
  * `<link rel="canonical">` on its own, and Yoast, Rank Math, AIOSEO, SEOPress,
  * The SEO Framework, Slim SEO and Jetpack each print some combination of
  * title, description, OpenGraph and JSON-LD. A second `<title>` is invalid
  * HTML and a second canonical makes Google pick one arbitrarily — so this
- * fills gaps only: it captures the rendered `<head>` and drops every CiteCue
- * tag whose slot is already taken. Detecting emitted markup rather than
- * sniffing for `WPSEO_VERSION` is what makes that correct against SEO plugins
- * and themes nobody here has heard of.
+ * fills gaps only: it reads the rendered `<head>` and drops every CiteCue tag
+ * whose slot is already taken. Detecting emitted markup rather than sniffing
+ * for `WPSEO_VERSION` is what makes that correct against SEO plugins and
+ * themes nobody here has heard of.
+ *
+ * **Never leave an output buffer open.** Reading the rendered head means
+ * buffering, and a buffer a plugin opens but does not itself close is one the
+ * next component's `ob_get_clean()` can take by mistake — the buffer stack
+ * misaligns and somebody else's page breaks (WordPress.org plugin review).
+ * Nothing here calls `ob_get_clean()`, `ob_end_flush()` or any other closing
+ * function, so nothing here can take a buffer it did not open or forget one it
+ * did. Since WordPress 6.9 core opens the buffer and hands the finished
+ * document to a filter, and that is the entire mechanism; below 6.9 the buffer
+ * is opened in the one form PHP finalizes on its own — `ob_start()` with a
+ * callback — so no hook, early return or fatal can leave it dangling.
  *
  * **Never block a human.** The proxy may spend a request budget on an outbound
  * call because only a bot is waiting. Here a real visitor is, so the render
@@ -64,14 +75,14 @@ class Citecue_Seo_Head {
 	const REFRESH_LOCK_TTL = MINUTE_IN_SECONDS;
 
 	/**
-	 * `template_redirect` priority the capture opens at. After the crawler
-	 * proxy and the llms.txt handler, which own priority 0 and both `exit`, so
-	 * a request either of them serves never opens a buffer here.
+	 * `template_redirect` priority the capture is arranged at: last, after
+	 * every other callback on the action. The crawler proxy and the llms.txt
+	 * handler own priority 0 and both `exit`, core's `redirect_canonical` runs
+	 * at 10, and a membership or maintenance plugin redirects here too — so
+	 * running last means a request somebody else answers never arranges a
+	 * capture at all.
 	 */
-	const CAPTURE_START_PRIORITY = 1;
-
-	/** `wp_head` priority the capture closes and injects at: after everyone. */
-	const CAPTURE_END_PRIORITY = PHP_INT_MAX;
+	const CAPTURE_PRIORITY = PHP_INT_MAX;
 
 	/**
 	 * `<link>` relations that may be injected, and `<meta>` values are escaped
@@ -96,16 +107,8 @@ class Citecue_Seo_Head {
 	private $plugin;
 
 	/**
-	 * Output-buffer nesting level our capture opened at, or null when no
-	 * capture is in flight.
-	 *
-	 * @var int|null
-	 */
-	private $buffer_level = null;
-
-	/**
-	 * The decision start_capture() acted on, carried to finish_capture() so the
-	 * pair cannot disagree — and so one page load costs one cache read and, at
+	 * The decision start_capture() acted on, carried to the injection so the
+	 * two cannot disagree — and so one page load costs one cache read and, at
 	 * most, one scheduled refresh.
 	 *
 	 * @var array|null
@@ -128,86 +131,147 @@ class Citecue_Seo_Head {
 	 */
 	public function register() {
 		add_action( self::REFRESH_HOOK, array( $this, 'refresh' ), 10, 1 );
-		add_action( 'template_redirect', array( $this, 'start_capture' ), self::CAPTURE_START_PRIORITY );
-		add_action( 'wp_head', array( $this, 'finish_capture' ), self::CAPTURE_END_PRIORITY );
+		add_action( 'template_redirect', array( $this, 'start_capture' ), self::CAPTURE_PRIORITY );
 	}
 
 	/**
-	 * Opens the capture, but only when there is something to inject — buffering
-	 * a page we will not touch is pure overhead, and every reason not to inject
-	 * is knowable before the theme renders a byte.
+	 * Arranges the capture, but only when there is something to inject —
+	 * buffering a page we will not touch is pure overhead, and every reason not
+	 * to inject is knowable before the theme renders a byte.
 	 *
-	 * Opened at `template_redirect` rather than at the start of `wp_head`
-	 * (PR #10 review): a theme that prints `<title>`, a canonical or its own
-	 * OpenGraph directly in `header.php` does so BEFORE `wp_head` runs, so a
-	 * capture scoped to the action would read those slots as empty and append
-	 * the duplicate the gap-fill exists to prevent. This is still not a
-	 * whole-page buffer — `wp_head` sits in `<head>`, so it closes within the
-	 * first few kilobytes.
+	 * Two mechanisms, one behaviour. WordPress 6.9 added a template output
+	 * buffer of its own, opened only when a plugin has registered a
+	 * `wp_template_enhancement_output_buffer` filter and closed by core, which
+	 * hands the finished document to that filter. Where it exists this class
+	 * opens no buffer at all and just asks for the document. Below 6.9 it opens
+	 * the same buffer core does, in the same form: `ob_start()` with a
+	 * *callback* and without PHP_OUTPUT_HANDLER_FLUSHABLE, so the callback is
+	 * invoked exactly once with the whole response.
+	 *
+	 * The callback form is the point (WordPress.org plugin review). A buffer
+	 * opened here has to close after the theme has rendered, which is a
+	 * different function by definition — and the shape this replaces, an
+	 * `ob_start()` on `template_redirect` paired with an `ob_get_clean()` on
+	 * `wp_head`, was left open by every way `wp_head` can fail to reach its
+	 * last callback: a template that never calls `wp_head()`, a plugin that
+	 * `exit`s inside it, a fatal, or simply another buffer opened in the head
+	 * and not closed, which made the pairing unsafe to complete. A callback has
+	 * nothing to pair and nothing to leave open — PHP invokes it when the
+	 * buffer ends, and ends the buffer itself at the end of the request if
+	 * nothing ended it sooner, so the response goes out whatever happens.
+	 *
+	 * Buffering the response rather than just the head is the cost of that, and
+	 * it is the trade core made in 6.9 too. It is bounded on the only axis that
+	 * matters here: the buffer is opened solely when a cached block is already
+	 * in hand, so a page CiteCue has nothing for streams exactly as it did.
 	 *
 	 * @return void
 	 */
 	public function start_capture() {
-		$this->buffer_level = null;
-		$this->decision     = $this->decide();
+		$this->decision = $this->decide();
 
 		if ( ! $this->decision['inject'] ) {
 			return;
 		}
 
-		ob_start();
-		$this->buffer_level = ob_get_level();
+		// WordPress 6.9+. Registered here rather than at `init` because core
+		// decides whether to buffer at all by looking for this filter when the
+		// template is included, which is after this action — so registering it
+		// only on a page there is something to inject into means CiteCue never
+		// makes core buffer a response it would have streamed.
+		if ( function_exists( 'wp_should_output_buffer_template_for_enhancement' ) ) {
+			add_filter( 'wp_template_enhancement_output_buffer', array( $this, 'enhance' ) );
+			return;
+		}
+
+		ob_start(
+			array( $this, 'finish_capture' ),
+			0, // No chunking: the injection needs the whole response to find the head in it.
+			PHP_OUTPUT_HANDLER_STDFLAGS ^ PHP_OUTPUT_HANDLER_FLUSHABLE
+		);
 	}
 
 	/**
-	 * Closes the capture, re-emits everything rendered so far, and appends the
-	 * CiteCue tags that found an empty slot.
+	 * The output-buffer callback, on WordPress below 6.9 only. PHP calls this
+	 * when the buffer ends — which it always does, at the end of the request if
+	 * nothing ended it sooner — and sends what it returns.
 	 *
-	 * @return void
+	 * @param string $output Everything rendered since the buffer opened.
+	 * @param int    $phase  PHP output handler phase bitmask.
+	 * @return string What is sent to the browser.
 	 */
-	public function finish_capture() {
-		$level              = $this->buffer_level;
-		$decision           = $this->decision;
-		$this->buffer_level = null;
-		$this->decision     = null;
-
-		if ( null === $level || null === $decision ) {
-			return;
+	public function finish_capture( $output, $phase ) {
+		// Ended by a clean rather than a flush, and PHP discards what a handler
+		// returns in that phase — the caller gets the raw bytes. So either the
+		// response is being thrown away, or something that buffered the whole
+		// page is taking it with ob_get_clean(); in both cases nothing returned
+		// here can reach a browser, and the page goes out un-enriched. Core's
+		// own template enhancement filter is skipped on exactly the same
+		// requests, for exactly this reason, and makes exactly this check.
+		if ( 0 !== ( (int) $phase & PHP_OUTPUT_HANDLER_CLEAN ) ) {
+			return (string) $output;
 		}
 
-		// Our buffer is no longer the top one: something opened another inside
-		// the head and has not closed it, or closed ours for us. Leave every
-		// buffer exactly as it is and inject nothing (PR #10 review). Unwinding
-		// down to ours would close a buffer this class did not create, and its
-		// owner's later ob_get_clean() would then take an unrelated one —
-		// breaking whatever minifier or cache opened it. Ours flushes with the
-		// rest at the end of the request, so no output is lost or reordered;
-		// only the tags are skipped, which is a non-event.
-		if ( ob_get_level() !== $level ) {
-			return;
+		return $this->enhance( $output );
+	}
+
+	/**
+	 * The rendered document with CiteCue's tags added to its head — the one
+	 * place the injection happens, shared by both mechanisms above.
+	 *
+	 * Everything before `</head>` is what the slot check reads, and the tags go
+	 * immediately before it. Scoping both to the head is not tidiness: an
+	 * inline SVG in the body carries a `<title>`, `<meta itemprop>` is legal in
+	 * body content, and a page that quotes markup in a code sample contains
+	 * whatever it quotes — so a document-wide scan would read slots as occupied
+	 * that no browser or crawler ever reads as page metadata, and CiteCue would
+	 * silently stop filling them.
+	 *
+	 * A response with no `</head>` is returned exactly as it arrived: a JSON or
+	 * CSV export served from a page URL, a fragment, a document another plugin
+	 * replaced wholesale. There is no head to fill gaps in, and guessing where
+	 * one would have gone is how a plugin corrupts a response it did not
+	 * understand.
+	 *
+	 * @param string $html Rendered document.
+	 * @return string
+	 */
+	public function enhance( $html ) {
+		$decision = $this->decision;
+
+		// One capture, one injection: whatever else calls this — a filter
+		// applied twice, a buffer finalized more than once — must not append
+		// the block again.
+		$this->decision = null;
+		$html           = (string) $html;
+
+		if ( null === $decision || ! $decision['inject'] ) {
+			return $html;
 		}
 
-		$head = (string) ob_get_clean();
-		$tags = self::merge( $head, $decision['block'] );
+		if ( ! preg_match( '#</head\s*>#i', $html, $match, PREG_OFFSET_CAPTURE ) ) {
+			return $html;
+		}
 
-		// Everything rendered so far, verbatim — the theme's own markup and
-		// other plugins' `wp_head` output passing straight back through.
-		echo $head; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		$at   = (int) $match[0][1];
+		$tags = self::merge( substr( $html, 0, $at ), $decision['block'] );
 
 		if ( ! $tags ) {
-			return;
+			return $html;
 		}
 
-		echo "\n<!-- CiteCue -->\n";
-		// Built by self::rebuild_tag() out of escaped values — never a string
-		// from the response — so this is our own markup, not remote markup.
-		echo implode( "\n", $tags ) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		// The tags are built by self::rebuild_tag() out of escaped values,
+		// never a string from the response, so what is spliced in here is our
+		// own markup rather than remote markup.
+		return substr( $html, 0, $at )
+			. "\n<!-- CiteCue -->\n" . implode( "\n", $tags ) . "\n"
+			. substr( $html, $at );
 	}
 
 	/**
 	 * Whether this request should be injected into, and with what — reading the
-	 * cache only, never the network. The testable counterpart of the capture
-	 * pair, mirroring the decide()/serve() split in Citecue_Proxy.
+	 * cache only, never the network. The testable counterpart of the capture,
+	 * mirroring the decide()/serve() split in Citecue_Proxy.
 	 *
 	 * @return array{inject:bool,block:string,reason:string}
 	 */
@@ -448,8 +512,13 @@ class Citecue_Seo_Head {
 		 * The default policy is gap-filling: a tag whose slot another plugin
 		 * has already filled is dropped. Use this to re-add one (having removed
 		 * the other plugin's copy yourself) or to drop more. Whatever is
-		 * returned is printed unescaped, so a filter that adds markup owns
-		 * escaping it.
+		 * returned is spliced into the head unescaped, so a filter that adds
+		 * markup owns escaping it.
+		 *
+		 * This runs inside an output buffer callback. A callback here must not
+		 * print anything (PHP silently drops it before 8.5 and deprecates it
+		 * after) and must not call `ob_start()`, which is a fatal error in that
+		 * context. Return the tags; do not emit them.
 		 *
 		 * @param string[] $tags     Tags that survived the gap-fill.
 		 * @param string   $block    The full block CiteCue returned.
