@@ -4,7 +4,7 @@ Tags: ai, ai-crawlers, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -118,6 +118,9 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 
 == Upgrade Notice ==
 
+= 1.1.2 =
+Changes how page metadata is added to the response: no output buffer is left open, and WordPress 6.9's own template output buffer is used where there is one. Nothing to reconfigure.
+
 = 1.1.1 =
 Fixes a fatal error on sites that still have the old citecue/ folder installed alongside this plugin. Admin notices now appear only on the Plugins and CiteCue screens.
 
@@ -128,6 +131,11 @@ Adds enriched page metadata for live pages. Existing connections need one reconn
 The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploading the zip from GitHub, delete the old citecue folder after updating — your settings and connection are stored in the database and carry over untouched.
 
 == Changelog ==
+
+= 1.1.2 =
+* The metadata layer no longer holds an output buffer of its own open across a request. On WordPress 6.9 and later it uses core's template enhancement output buffer, so the plugin opens no buffer at all; below that it opens one in the form PHP finalizes by itself, and closes nothing. The previous shape opened a buffer on one hook and closed it on another, which left one open on any page whose `wp_head` did not run to the end — and a buffer left open is one the next plugin's `ob_get_clean()` can take by mistake.
+* The tags now go immediately before `</head>` rather than at the end of `wp_head`, and the check for what is already there reads the head only. Markup in the body — a `<title>` inside an inline SVG, a `<meta>` quoted in page content — no longer counts as a slot somebody else has filled, so pages carrying either get their metadata again.
+* The capture is arranged after every other `template_redirect` callback, so a request another plugin redirects or answers itself is never buffered.
 
 = 1.1.1 =
 * Admin notices are confined to the Plugins screen and the CiteCue settings screen. The rejected-key warning and the duplicate-install warning used to print on every screen in the dashboard; neither asks for anything that can be done anywhere else, and the settings screen states both a second time in its status card.

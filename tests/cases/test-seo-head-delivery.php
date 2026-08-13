@@ -407,12 +407,12 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
-	 * The full render: what the rest of wp_head printed comes back untouched,
-	 * with only the gaps appended after it.
+	 * The full render: everything the theme and every other plugin printed
+	 * comes back untouched, with only the gaps added before `</head>`.
 	 *
 	 * @return void
 	 */
-	public function test_capture_appends_only_the_gaps() {
+	public function test_the_render_adds_only_the_gaps() {
 		$this->configure_delivery();
 		$url = $this->fake_visitor_request();
 		$this->plugin->cache->set_seo_head(
@@ -421,25 +421,23 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 				. '<meta data-citecue="og" property="og:title" content="Acme" />'
 		);
 
-		$injector = $this->seo_head();
-
-		ob_start();
-		$injector->start_capture();
-		echo '<title>The theme wrote this</title>';
-		$injector->finish_capture();
-		$output = ob_get_clean();
+		$output = $this->render(
+			$this->seo_head(),
+			$this->document( '<title>The theme wrote this</title>' )
+		);
 
 		$this->assertStringContainsString( '<title>The theme wrote this</title>', $output );
 		$this->assertStringNotContainsString( 'CiteCue title', $output );
 		$this->assertStringContainsString( 'og:title', $output );
 		$this->assertSame( 1, substr_count( $output, '<title' ) );
+		$this->assertStringContainsString( '<!-- CiteCue -->', $output );
 	}
 
 	/**
 	 * A theme that prints its own `<title>` in header.php does so before
-	 * `wp_head` runs. The capture opens at `template_redirect` precisely so
-	 * that markup is still seen — scoped to the action, this would append a
-	 * second title.
+	 * `wp_head` runs. The capture spans the whole response precisely so that
+	 * markup is still seen — scoped to the action, this would add a second
+	 * title.
 	 *
 	 * @return void
 	 */
@@ -452,13 +450,10 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 				. '<meta data-citecue="og" property="og:title" content="Acme" />'
 		);
 
-		$injector = $this->seo_head();
-
-		ob_start();
-		$injector->start_capture();
-		echo '<!DOCTYPE html><html><head><title>Printed by header.php</title>';
-		$injector->finish_capture();
-		$output = ob_get_clean();
+		$output = $this->render(
+			$this->seo_head(),
+			$this->document( '<title>Printed by header.php</title>' )
+		);
 
 		$this->assertSame( 1, substr_count( $output, '<title' ) );
 		$this->assertStringNotContainsString( 'CiteCue title', $output );
@@ -466,60 +461,294 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
-	 * Another plugin's buffer left open across the end of wp_head must be left
-	 * exactly where it is. Unwinding to reach ours would close a buffer this
-	 * class did not create, and its owner's later ob_get_clean() would then
-	 * take an unrelated one.
+	 * The tags go inside the head, before its closing tag, rather than wherever
+	 * the render happened to stop.
 	 *
 	 * @return void
 	 */
-	public function test_a_foreign_buffer_is_never_unwound() {
+	public function test_the_tags_land_inside_the_head() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+
+		$output = $this->render( $this->seo_head(), $this->document() );
+
+		$this->assertLessThan(
+			strpos( $output, '</head>' ),
+			strpos( $output, 'og:title' ),
+			'The block belongs before the head closes.'
+		);
+	}
+
+	/**
+	 * Markup in the body never claims a head slot. An inline SVG carries a
+	 * `<title>` and a page that quotes markup contains whatever it quotes, so a
+	 * document-wide scan would read slots as occupied that no crawler reads as
+	 * page metadata — and CiteCue would quietly stop filling them.
+	 *
+	 * @return void
+	 */
+	public function test_body_markup_never_claims_a_head_slot() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '<title data-citecue="title">CiteCue title</title>' );
+
+		$output = $this->render(
+			$this->seo_head(),
+			$this->document( '', '<svg><title>An icon</title></svg>' )
+		);
+
+		$this->assertStringContainsString( 'CiteCue title', $output );
+	}
+
+	/**
+	 * A response with no head is handed back byte for byte: a JSON or CSV
+	 * export served from a page URL, a fragment, a document another plugin
+	 * replaced wholesale. There is nothing to fill a gap in, and guessing where
+	 * a head would have gone is how a plugin corrupts a response.
+	 *
+	 * @return void
+	 */
+	public function test_a_response_without_a_head_is_untouched() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+
+		$csv = "sku,price\nCC-1,9.99\n";
+
+		$this->assertSame( $csv, $this->render( $this->seo_head(), $csv ) );
+	}
+
+	/**
+	 * Nothing to inject means nothing arranged: no buffer of the plugin's own,
+	 * no filter registered for core's, and every byte where the theme put it.
+	 *
+	 * @return void
+	 */
+	public function test_nothing_is_arranged_without_a_block() {
+		$this->configure_delivery();
+		$this->fake_visitor_request();
+
+		$injector = $this->seo_head();
+		$level    = ob_get_level();
+
+		$injector->start_capture();
+
+		$this->assertSame( $level, ob_get_level(), 'A page with nothing to inject must not be buffered.' );
+		$this->assertFalse( has_filter( 'wp_template_enhancement_output_buffer' ) );
+		$this->assertSame( $this->document(), $injector->enhance( $this->document() ) );
+	}
+
+	/**
+	 * The buffer discipline the WordPress.org review asked for, stated as the
+	 * property that matters: a render leaves the buffer stack exactly as it
+	 * found it, even though `wp_head` never runs here — which is the case the
+	 * old `ob_start()`/`ob_get_clean()` pairing across two actions could not
+	 * survive. Every render in this file goes through the same helper and
+	 * asserts the same thing.
+	 *
+	 * @return void
+	 */
+	public function test_a_render_that_never_reaches_wp_head_leaves_no_buffer_behind() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+
+		$level = ob_get_level();
+
+		$this->assertStringContainsString( 'og:title', $this->render( $this->seo_head(), $this->document() ) );
+		$this->assertSame( $level, ob_get_level() );
+		$this->assertFalse( has_action( 'wp_head', array( $this->seo_head(), 'finish_capture' ) ) );
+	}
+
+	/**
+	 * Which mechanism runs is decided by what WordPress provides, and the two
+	 * are exclusive: from 6.9 the plugin opens nothing at all and asks core for
+	 * the finished document; below it the plugin opens the buffer, and opens it
+	 * with a callback — the form PHP finalizes on its own — so there is no
+	 * closing call to be bypassed and nothing left open if one is.
+	 *
+	 * Both halves are asserted, and CI runs both: the matrix pins WordPress
+	 * 5.9 and 6.5 alongside the current release.
+	 *
+	 * @return void
+	 */
+	public function test_the_capture_uses_core_s_buffer_where_there_is_one() {
 		$this->configure_delivery();
 		$url = $this->fake_visitor_request();
 		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
 
 		$injector = $this->seo_head();
+		$level    = ob_get_level();
 
-		ob_start();
 		$injector->start_capture();
-		echo '<title>Theme</title>';
 
-		// Somebody else opens one and does not close it before wp_head ends.
-		ob_start();
-		$foreign_level = ob_get_level();
-		echo 'foreign';
+		$opened = ob_get_level() - $level;
+		$status = ob_get_status( true );
+		$mine   = $opened ? end( $status ) : array();
 
-		$injector->finish_capture();
+		while ( ob_get_level() > $level ) {
+			ob_end_clean();
+		}
 
-		$this->assertSame( $foreign_level, ob_get_level(), 'finish_capture() must not close a buffer it did not open.' );
-		$this->assertSame( 'foreign', ob_get_clean() );
+		if ( function_exists( 'wp_should_output_buffer_template_for_enhancement' ) ) {
+			$this->assertSame( 0, $opened, 'From WordPress 6.9 core owns the buffer.' );
+			$this->assertNotFalse( has_filter( 'wp_template_enhancement_output_buffer', array( $injector, 'enhance' ) ) );
+			return;
+		}
 
-		$output = ob_get_clean();
-		$this->assertSame( '<title>Theme</title>', $output );
-		$this->assertStringNotContainsString( 'og:title', $output );
-
-		ob_end_clean();
+		$this->assertSame( 1, $opened, 'Below WordPress 6.9 the plugin opens its own.' );
+		$this->assertFalse( has_filter( 'wp_template_enhancement_output_buffer' ) );
+		$this->assertSame( 'Citecue_Seo_Head::finish_capture', $mine['name'], 'The buffer must be the self-finalizing callback form.' );
+		$this->assertSame( 0, $mine['flags'] & PHP_OUTPUT_HANDLER_FLUSHABLE, 'A flushable buffer would hand the callback a fragment.' );
 	}
 
 	/**
-	 * Nothing to inject means nothing touched: no buffer, no marker comment,
-	 * and every byte of the head exactly where the theme put it.
+	 * A buffer somebody else opens inside the head and never closes is neither
+	 * taken nor unwound: PHP ends it first and its bytes land in ours. The old
+	 * pairing had to detect this case and give up on the tags; there is nothing
+	 * to detect now.
+	 *
+	 * Below WordPress 6.9 this exercises the plugin's own callback buffer; from
+	 * 6.9 core owns the buffer and the same nesting applies to it.
 	 *
 	 * @return void
 	 */
-	public function test_capture_is_a_no_op_without_a_block() {
+	public function test_a_foreign_buffer_left_open_is_neither_taken_nor_lost() {
 		$this->configure_delivery();
-		$this->fake_visitor_request();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
 
 		$injector = $this->seo_head();
+		$level    = ob_get_level();
 
 		ob_start();
 		$injector->start_capture();
-		echo '<title>The theme wrote this</title>';
-		$injector->finish_capture();
-		$output = ob_get_clean();
 
-		$this->assertSame( '<title>The theme wrote this</title>', $output );
+		echo '<!DOCTYPE html><html><head><title>Theme</title>';
+		ob_start(); // Somebody else's minifier, still open when the response ends.
+		echo '<meta name="generator" content="a minifier" />';
+		echo '</head><body>hi</body></html>';
+
+		// The end of the request: PHP flushes every open buffer, innermost
+		// first, which is what invokes the plugin's callback.
+		while ( ob_get_level() > $level + 1 ) {
+			ob_end_flush();
+		}
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( $level, ob_get_level(), 'The plugin must not take, or leave, a buffer.' );
+		$this->assertStringContainsString( 'a minifier', $output, 'The foreign buffer\'s bytes must survive.' );
+		$this->assertStringContainsString( '<title>Theme</title>', $output );
+	}
+
+	/**
+	 * A buffer ended by a clean rather than a flush is handed back untouched:
+	 * PHP discards what the callback returns in that phase, so there is nothing
+	 * to gain by enriching it. The decision survives for the response that
+	 * replaces it.
+	 *
+	 * @return void
+	 */
+	public function test_a_discarded_response_is_not_enhanced() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$document = $this->document();
+
+		$this->assertSame( $document, $injector->finish_capture( $document, PHP_OUTPUT_HANDLER_CLEAN ) );
+		$this->assertStringContainsString( 'og:title', $injector->enhance( $document ) );
+	}
+
+	/**
+	 * One capture, one injection. Whatever calls the injection twice — a filter
+	 * applied again, a buffer finalized in pieces — must not append the block a
+	 * second time.
+	 *
+	 * @return void
+	 */
+	public function test_the_block_is_injected_once() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$this->assertStringContainsString( 'og:title', $injector->enhance( $this->document() ) );
+		$this->assertSame( $this->document(), $injector->enhance( $this->document() ) );
+	}
+
+	/**
+	 * A rendered page, as the injection receives it.
+	 *
+	 * @param string $head Extra head markup.
+	 * @param string $body Body markup.
+	 * @return string
+	 */
+	private function document( $head = '', $body = '<p>Hello</p>' ) {
+		return '<!DOCTYPE html><html><head><meta charset="utf-8" />' . $head . '</head><body>' . $body . '</body></html>';
+	}
+
+	/**
+	 * One page render, end to end, through whichever mechanism this WordPress
+	 * provides: core's template enhancement buffer from 6.9, the plugin's own
+	 * callback buffer below it. Returns what the visitor receives, and fails
+	 * the test unless the render left the output buffer stack as it found it.
+	 *
+	 * @param Citecue_Seo_Head $injector Injector under test.
+	 * @param string           $document What the theme renders.
+	 * @return string
+	 */
+	private function render( Citecue_Seo_Head $injector, $document ) {
+		$level = ob_get_level();
+
+		ob_start(); // Stands in for everything below the plugin on the stack.
+		$injector->start_capture();
+
+		if ( ob_get_level() === $level + 1 ) {
+			// The plugin opened nothing: either there is nothing to inject, or
+			// core owns the buffer and applies the filter to the response.
+			$delivered = has_filter( 'wp_template_enhancement_output_buffer' )
+				? (string) apply_filters( 'wp_template_enhancement_output_buffer', $document, $document )
+				: $document;
+			ob_end_clean();
+		} else {
+			echo $document; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			// The end of the request, where PHP flushes what is still open.
+			while ( ob_get_level() > $level + 1 ) {
+				ob_end_flush();
+			}
+			$delivered = (string) ob_get_clean();
+		}
+
+		$this->assertSame( $level, ob_get_level(), 'A render must leave the buffer stack as it found it.' );
+
+		return $delivered;
+	}
+
+	/**
+	 * Runs the arrangement `template_redirect` runs and takes back whatever
+	 * buffer it opened, so a test can call the injection directly without one
+	 * outliving it. Ending the buffer this way discards it, which the plugin's
+	 * callback treats as a response being thrown away — so the decision it is
+	 * holding survives for the test to act on.
+	 *
+	 * @param Citecue_Seo_Head $injector Injector under test.
+	 * @return void
+	 */
+	private function arrange_capture( Citecue_Seo_Head $injector ) {
+		$level = ob_get_level();
+
+		$injector->start_capture();
+
+		while ( ob_get_level() > $level ) {
+			ob_end_clean();
+		}
 	}
 
 	/**
