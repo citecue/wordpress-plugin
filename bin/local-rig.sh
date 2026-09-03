@@ -21,6 +21,17 @@
 #   RIG_DIR      where to build it        (default: a temp directory)
 #   RIG_DB_HOST  MySQL/MariaDB host:port  (default: 127.0.0.1:13306)
 #   RIG_DB_USER  database user            (default: root)
+#
+# To point at a REAL CiteCue instead of the stub — a local build, a staging
+# origin, or app.citecue.com for the post-deploy acceptance test — set all three:
+#
+#   RIG_API_BASE    e.g. http://127.0.0.1:8787
+#   RIG_API_KEY     the org API key (ck_live_...)
+#   RIG_PUBLIC_KEY  the project's public key (pk_...)
+#
+# The stub is then not started, and the checks that assert on what the plugin
+# SENT are skipped — they read the stub's own request log, which a real server
+# does not keep for us.
 
 set -euo pipefail
 
@@ -30,6 +41,14 @@ DB_HOST=${RIG_DB_HOST:-127.0.0.1:13306}
 DB_USER=${RIG_DB_USER:-root}
 API_PORT=13380
 WP_PORT=13390
+
+REAL_API=${RIG_API_BASE:-}
+API_KEY=${RIG_API_KEY:-ck_live_rig}
+PUBLIC_KEY=${RIG_PUBLIC_KEY:-pk_rig}
+API_BASE="http://127.0.0.1:$API_PORT"
+if [ -n "$REAL_API" ]; then
+	API_BASE="$REAL_API"
+fi
 
 WP_SRC="$ROOT/vendor/roots/wordpress-no-content"
 CORE_VERSION_FILE="$WP_SRC/wp-includes/version.php"
@@ -74,28 +93,36 @@ printf '/*\nTheme Name: CiteCue Rig\nVersion: 1.0\n*/\n' > "$RIG_DIR/wp/wp-conte
 cp "$ROOT/bin/rig/fake-citecue.php" "$RIG_DIR/fake-api/router.php"
 
 sed -e "s|__DB_HOST__|$DB_HOST|" -e "s|__DB_USER__|$DB_USER|" \
-	-e "s|__API_PORT__|$API_PORT|" -e "s|__WP_PORT__|$WP_PORT|" \
+	-e "s|__API_BASE__|$API_BASE|" -e "s|__WP_PORT__|$WP_PORT|" \
 	"$ROOT/bin/rig/wp-config.php.tpl" > "$RIG_DIR/wp/wp-config.php"
 
-( cd "$RIG_DIR/fake-api" && nohup php -S "127.0.0.1:$API_PORT" router.php </dev/null >"$RIG_DIR/fake-api.log" 2>&1 & )
+if [ -z "$REAL_API" ]; then
+	( cd "$RIG_DIR/fake-api" && nohup php -S "127.0.0.1:$API_PORT" router.php </dev/null >"$RIG_DIR/fake-api.log" 2>&1 & )
+fi
 ( cd "$RIG_DIR/wp" && nohup php -S "127.0.0.1:$WP_PORT" </dev/null >"$RIG_DIR/wp.log" 2>&1 & )
 
-for _ in $(seq 1 20); do
-	curl -sf "http://127.0.0.1:$API_PORT/api/delivery/v1/crawlers" >/dev/null 2>&1 && break
-	sleep 0.5
-done
+if [ -z "$REAL_API" ]; then
+	for _ in $(seq 1 20); do
+		curl -sf "$API_BASE/api/delivery/v1/crawlers" >/dev/null 2>&1 && break
+		sleep 0.5
+	done
+fi
 
-RIG_DIR="$RIG_DIR" php "$ROOT/bin/rig/seed.php"
+RIG_DIR="$RIG_DIR" RIG_API_KEY="$API_KEY" RIG_PUBLIC_KEY="$PUBLIC_KEY" php "$ROOT/bin/rig/seed.php"
 
 echo
 echo "WordPress : http://127.0.0.1:$WP_PORT/protein-guide/"
-echo "Stub API  : http://127.0.0.1:$API_PORT  (requests logged to $RIG_DIR/fake-api/requests.log)"
+if [ -n "$REAL_API" ]; then
+	echo "CiteCue   : $API_BASE  (real server)"
+else
+	echo "Stub API  : $API_BASE  (requests logged to $RIG_DIR/fake-api/requests.log)"
+fi
 echo "Rig       : $RIG_DIR"
 
 if [ "${1:-up}" = "verify" ]; then
 	echo
 	status=0
-	RIG_DIR="$RIG_DIR" WP_PORT="$WP_PORT" php "$ROOT/bin/rig/verify.php" || status=$?
+	RIG_DIR="$RIG_DIR" WP_PORT="$WP_PORT" RIG_API_BASE="$REAL_API" php "$ROOT/bin/rig/verify.php" || status=$?
 	down >/dev/null 2>&1
 	exit $status
 fi

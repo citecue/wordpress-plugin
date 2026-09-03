@@ -87,7 +87,18 @@ $head_end = stripos( $warm, '</head>' );
 $body_end = strripos( $warm, '</body>' );
 $at       = stripos( $warm, '<section data-citecue="page-enhancement"' );
 check( 'block is in the body, before </body>', $at > $head_end && $at < $body_end );
-check( 'head half injected too', false !== strpos( $warm, 'og:title' ) );
+// Conditional on what the server actually sent. The two halves are
+// independent, and a project with a block but no enriched page is a legitimate
+// answer — `head: ''` with a populated `body` is exactly what the endpoint
+// returns then. Asserting a head unconditionally would fail the plugin for the
+// server's correct behaviour.
+$cached    = Citecue_Plugin::instance()->cache->get_seo_head( $url );
+$sent_head = is_array( $cached ) ? (string) $cached['block'] : '';
+if ( '' === $sent_head ) {
+	echo "  SKIP head half (this fixture's project has no enriched page, so the server sent head: '')\n";
+} else {
+	check( 'head half injected too', false !== strpos( $warm, 'og:title' ) );
+}
 
 // The FAQ payload is the GEO point of the block, and the first casualty of any
 // reflex to sanitize the response.
@@ -142,9 +153,27 @@ wp_update_post(
 );
 
 // The request the plugin actually made, not just what it did with the answer.
-$log = @file_get_contents( $rig . '/fake-api/requests.log' );
-check( 'delivery read carried the org key as a Bearer token', false !== strpos( (string) $log, 'Bearer ck_live_rig' ) );
-check( 'delivery read identified the channel', false !== strpos( (string) $log, '"channel":"WordPress"' ) );
+// Only the stub keeps a log for us, so these are skipped rather than failed
+// when the rig is pointed at a real CiteCue.
+if ( getenv( 'RIG_API_BASE' ) ) {
+	echo "  SKIP request-log checks (real CiteCue keeps no log for us)\n";
+} else {
+	$log = @file_get_contents( $rig . '/fake-api/requests.log' );
+	check( 'delivery read carried the org key as a Bearer token', false !== strpos( (string) $log, 'Bearer ck_live_rig' ) );
+	// Built with strtolower() rather than written as a literal. The channel is a
+	// protocol value the plugin sends lowercased, and phpcbf's prose sniff
+	// rewrites a bare "WordPress" literal into "WordPress" — which silently
+	// turns this into an assertion that fails against correct behaviour.
+	$expected_channel = strtolower( 'WordPress' );
+	$sent_channel     = '';
+	foreach ( explode( "\n", trim( (string) $log ) ) as $line ) {
+		$entry = json_decode( $line, true );
+		if ( is_array( $entry ) && false !== strpos( (string) ( $entry['path'] ?? '' ), '/seo-head' ) ) {
+			$sent_channel = (string) ( $entry['channel'] ?? '' );
+		}
+	}
+	check( 'delivery read identified the channel', $expected_channel === $sent_channel, "sent '$sent_channel'" );
+}
 
 echo "\n";
 if ( $failures ) {

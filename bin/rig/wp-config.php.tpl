@@ -19,7 +19,7 @@ define( 'DISABLE_WP_CRON', true );
 
 // Point the plugin at the stub. This is the plugin's own supported override for
 // a self-hosted or staging origin — see Citecue_Settings::pinned_api_base().
-define( 'CITECUE_API_BASE', 'http://127.0.0.1:__API_PORT__' );
+define( 'CITECUE_API_BASE', '__API_BASE__' );
 
 define( 'AUTH_KEY', 'rig' ); define( 'SECURE_AUTH_KEY', 'rig' ); define( 'LOGGED_IN_KEY', 'rig' );
 define( 'NONCE_KEY', 'rig' ); define( 'AUTH_SALT', 'rig' ); define( 'SECURE_AUTH_SALT', 'rig' );
