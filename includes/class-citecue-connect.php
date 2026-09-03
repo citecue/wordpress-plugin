@@ -295,18 +295,30 @@ class Citecue_Connect {
 	 * Turns the local "accept pushed content" switch off when CiteCue no longer
 	 * holds a secret it could sign a push with.
 	 *
-	 * **Revoke only.** A `contentPush` of true never turns the switch ON. The
-	 * field says CiteCue holds a signing secret, which is not the same as this
-	 * site agreeing to be written to — that switch is the administrator's, and
-	 * flipping it on from a remote read would grant write access to a site
-	 * whose owner had deliberately refused it. Silence never grants; this only
-	 * ever closes.
+	 * **Revoke only.** A `contentPush` of true never turns the switch ON, and
+	 * the tempting argument for letting it is worth answering here, because
+	 * CiteCue only gained a real consent gate at the same time as this field:
+	 * since a secret is now stored only where the customer ticked the box,
+	 * `true` really does imply they consented once. It is still not a grant. It
+	 * reports that CiteCue holds a signable secret at this instant — a fact
+	 * about CiteCue's storage — whereas this switch is the administrator's
+	 * standing decision about their own site, and they may have closed it here
+	 * on purpose afterwards. Re-opening it from a remote read would hand write
+	 * access back to a site whose owner had refused it. A remote grant belongs
+	 * on the connect screen, where the customer is actually told what they are
+	 * agreeing to. This only ever closes.
 	 *
 	 * **Absent is not false.** The key is read with array_key_exists() rather
-	 * than a truthiness test, because a response from a CiteCue that predates
-	 * the field would otherwise look like an explicit withdrawal and switch
-	 * pushes off on every site at once. Only a `contentPush` that is present
-	 * and false revokes; anything else leaves the switch alone.
+	 * than a truthiness test. This guard will look redundant against the
+	 * current API, and it is not: `contentPush` is a required boolean on every
+	 * project entry, so any CiteCue that has the field always sends it, and a
+	 * reader checking the schema will conclude the branch is dead. What it
+	 * defends is the deployment that does NOT have the field — a rollback, a
+	 * staging origin on an older build, a self-hosted app behind on releases.
+	 * Against one of those a truthiness test reads every project as an explicit
+	 * withdrawal and switches content pushes off on every site at once, which
+	 * is the only way this reconcile could do real damage. Only a `contentPush`
+	 * that is present and false revokes; anything else leaves the switch alone.
 	 *
 	 * Anything ambiguous is also left alone — a transport failure (handled by
 	 * the caller), a project list this site's own key is not in. Each is a

@@ -439,11 +439,13 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
-	 * The switch is never turned ON from a remote read. `contentPush` says
-	 * CiteCue holds a signing secret, which is not the same as this site
-	 * agreeing to be written to — that decision is the administrator's, and
-	 * flipping it from here would grant write access to a site whose owner had
-	 * deliberately refused it.
+	 * The switch is never turned ON from a remote read, even though CiteCue's
+	 * consent gate means `contentPush: true` now implies the customer did once
+	 * tick the box. That makes the grant reading tempting and still wrong: the
+	 * field reports what CiteCue holds at this instant, while the switch is the
+	 * administrator's standing decision about their own site — and they may
+	 * have closed it here on purpose since. Re-opening it from a remote read
+	 * would hand write access back to a site whose owner had refused it.
 	 *
 	 * @return void
 	 */
@@ -461,6 +463,13 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	 * withdrawal. Defaulting the absent key to false would switch pushes off on
 	 * every site at once, which is the one way this reconcile could do real
 	 * damage.
+	 *
+	 * This test looks redundant against the current API and is not.
+	 * `contentPush` is a required boolean on every project entry, so a reader
+	 * checking the schema will find no way to reach the case at all. The case
+	 * it covers is the deployment WITHOUT the field — a rollback, a staging
+	 * origin on an older build, a self-hosted app behind on releases — which no
+	 * schema describes and which arrives without warning.
 	 *
 	 * @return void
 	 */
