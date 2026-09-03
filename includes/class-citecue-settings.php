@@ -37,26 +37,32 @@ class Citecue_Settings {
 	public static function defaults() {
 		return array(
 			// Connection.
-			'api_base'           => self::DEFAULT_API_BASE,
-			'api_key'            => '',
-			'public_key'         => '',
-			'project_domain'     => '',
+			'api_base'              => self::DEFAULT_API_BASE,
+			'api_key'               => '',
+			'public_key'            => '',
+			'project_domain'        => '',
 			// Delivery.
-			'serve_enabled'      => true,
-			'llms_txt_enabled'   => true,
-			'seo_head_enabled'   => true,
+			'serve_enabled'         => true,
+			'llms_txt_enabled'      => true,
+			'seo_head_enabled'      => true,
 			// The value of seo_head_enabled last reported to CiteCue, or null
 			// if this site has never reported one. CiteCue records the
 			// capability on the API key at connect time and has no other way to
 			// learn it, so this is how the settings screen knows to ask for a
 			// reconnect — see needs_seo_head_reconnect().
-			'seo_head_reported'  => null,
+			'seo_head_reported'     => null,
+			// The capability names last reported to CiteCue, or null if this
+			// site has never reported any. Kept alongside seo_head_reported
+			// rather than replacing it: that one tracks a SETTING the customer
+			// can toggle, this one tracks what this BUILD of the plugin is able
+			// to do, and only one of them changes when the plugin updates.
+			'capabilities_reported' => null,
 			// Content ingest (CiteCue -> WordPress post creation).
-			'ingest_enabled'     => false,
-			'ingest_secret'      => '',
-			'ingest_post_status' => 'draft',
-			'ingest_post_type'   => 'post',
-			'ingest_author'      => 0,
+			'ingest_enabled'        => false,
+			'ingest_secret'         => '',
+			'ingest_post_status'    => 'draft',
+			'ingest_post_type'      => 'post',
+			'ingest_author'         => 0,
 		);
 	}
 
@@ -215,7 +221,81 @@ class Citecue_Settings {
 		$reported = $this->get( 'seo_head_reported' );
 		$known    = null === $reported ? false : (bool) $reported;
 
-		return (bool) $this->get( 'seo_head_enabled' ) !== $known;
+		if ( (bool) $this->get( 'seo_head_enabled' ) !== $known ) {
+			return true;
+		}
+
+		$declared = $this->get( 'capabilities_reported' );
+
+		// Never reported a set at all: an install connected before this plugin
+		// declared capabilities by name. It is under-claiming everything it can
+		// now do, so it needs a reconnect the moment there is anything to
+		// claim — and needs no reconnect when there is not.
+		if ( ! is_array( $declared ) ) {
+			return array() !== $this->active_delivery_capabilities();
+		}
+
+		return $this->active_delivery_capabilities() !== $declared;
+	}
+
+	/**
+	 * The capability flags sent to CiteCue on the connect claim.
+	 *
+	 * One definition, read by the claim that reports them and by the drift
+	 * check above that notices when they have gone stale. Two lists would
+	 * disagree eventually, and the failure would be silent in the worst
+	 * direction: a capability announced and then never re-announced reads to
+	 * CiteCue as one the plugin still has.
+	 *
+	 * The three delivery capabilities all ride `seo_head_enabled`, because they
+	 * all arrive in the one `/seo-head` response that setting governs — a site
+	 * with injection switched off fetches nothing, so it can place neither a
+	 * head tag nor a body block, and claiming otherwise is exactly the
+	 * over-claim the capability exists to prevent.
+	 *
+	 * `seo_head_baseline` is safe for this plugin to ask for: it prints no
+	 * `Organization` node of its own anywhere, and the head merge drops
+	 * CiteCue's JSON-LD outright when the page already carries any, so the
+	 * site-wide identity block can never become a second competing one.
+	 *
+	 * @return array<string,bool>
+	 */
+	public function declared_capabilities() {
+		$seo_head = (bool) $this->get( 'seo_head_enabled' );
+
+		return array(
+			'woocommerce'       => class_exists( 'WooCommerce' ),
+			'seo_head'          => $seo_head,
+			'body_blocks'       => $seo_head,
+			'seo_head_baseline' => $seo_head,
+		);
+	}
+
+	/**
+	 * The names of the declared capabilities that gate what CiteCue SENDS,
+	 * sorted, for comparison against what was last reported.
+	 *
+	 * `woocommerce` is deliberately not among them. It gates nothing on the
+	 * delivery path — CiteCue records it for reporting only — so a customer who
+	 * installs WooCommerce after connecting has stale information on their key,
+	 * not a broken feature, and prompting them to reconnect over it would be
+	 * nagging about nothing.
+	 *
+	 * @return string[]
+	 */
+	public function active_delivery_capabilities() {
+		$declared = $this->declared_capabilities();
+		$names    = array();
+
+		foreach ( array( 'seo_head', 'body_blocks', 'seo_head_baseline' ) as $name ) {
+			if ( ! empty( $declared[ $name ] ) ) {
+				$names[] = $name;
+			}
+		}
+
+		sort( $names );
+
+		return $names;
 	}
 
 	/**
@@ -309,6 +389,19 @@ class Citecue_Settings {
 		// predates the capability must keep reading as until it reconnects.
 		if ( array_key_exists( 'seo_head_reported', $input ) ) {
 			$out['seo_head_reported'] = null === $input['seo_head_reported'] ? null : (bool) $input['seo_head_reported'];
+		}
+		// Same tri-state, and normalized to a sorted list of names so that the
+		// comparison in needs_seo_head_reconnect() cannot be tripped by key
+		// order alone.
+		if ( array_key_exists( 'capabilities_reported', $input ) ) {
+			$reported = $input['capabilities_reported'];
+			if ( null === $reported ) {
+				$out['capabilities_reported'] = null;
+			} else {
+				$names = array_values( array_filter( array_map( 'strval', (array) $reported ), 'strlen' ) );
+				sort( $names );
+				$out['capabilities_reported'] = $names;
+			}
 		}
 
 		// A changed key may fix a previous auth failure; let serving retry now.

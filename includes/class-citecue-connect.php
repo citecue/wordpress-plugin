@@ -143,22 +143,30 @@ class Citecue_Connect {
 	public function claim( $code ) {
 		$settings = $this->plugin->settings;
 
-		// The capability, not the ambition: CiteCue uses this to decide whether
+		// The capability, not the ambition: CiteCue uses these to decide whether
 		// `seoAudience: 'all'` is a promise this channel can keep, and a site
 		// that has injection switched off keeps it no better than a plugin that
 		// cannot inject at all. Reporting the live setting is what stops the
 		// app badging a fix "Live" over a head nothing writes to.
-		$seo_head = (bool) $settings->get( 'seo_head_enabled' );
+		//
+		// The set is built by Citecue_Settings::declared_capabilities(), which
+		// the reconnect prompt reads too — see needs_seo_head_reconnect(). Every
+		// name in it gates something CiteCue would otherwise not send, and
+		// absence always reads as "cannot", so an old plugin is never handed
+		// markup it would not place.
+		$seo_head     = (bool) $settings->get( 'seo_head_enabled' );
+		$capabilities = $settings->declared_capabilities();
 
 		$result = $this->plugin->api->claim_connect_code(
 			$code,
-			array(
-				'site_url'       => home_url( '/' ),
-				'rest_url'       => rest_url( 'citecue/v1/' ),
-				'ingest_secret'  => $settings->ensure_ingest_secret(),
-				'plugin_version' => CITECUE_VERSION,
-				'woocommerce'    => class_exists( 'WooCommerce' ),
-				'seo_head'       => $seo_head,
+			array_merge(
+				array(
+					'site_url'       => home_url( '/' ),
+					'rest_url'       => rest_url( 'citecue/v1/' ),
+					'ingest_secret'  => $settings->ensure_ingest_secret(),
+					'plugin_version' => CITECUE_VERSION,
+				),
+				$capabilities
 			)
 		);
 
@@ -167,13 +175,16 @@ class Citecue_Connect {
 		}
 
 		$update = array(
-			'api_key'           => $result['apiKey'],
-			'public_key'        => $result['publicKey'],
-			'project_domain'    => $result['domain'],
+			'api_key'               => $result['apiKey'],
+			'public_key'            => $result['publicKey'],
+			'project_domain'        => $result['domain'],
 			// Only after the exchange succeeded: a failed claim wrote nothing
 			// on CiteCue's side, so recording it here would silence the
 			// reconnect prompt for a capability the app never learned about.
-			'seo_head_reported' => $seo_head,
+			'seo_head_reported'     => $seo_head,
+			// Same rule, for the set as a whole. Recorded from the map that was
+			// actually sent, so the two can never drift apart here.
+			'capabilities_reported' => $settings->active_delivery_capabilities(),
 		);
 
 		// CiteCue's connect screen is where the customer is told that content
@@ -212,15 +223,16 @@ class Citecue_Connect {
 				// flag — but sanitize() only runs once register_setting() has,
 				// and the empty value is what a write that bypasses the filter
 				// has to see. Either path must end up with no key.
-				'api_key'           => '',
-				'api_key_clear'     => 1,
-				'public_key'        => '',
-				'project_domain'    => '',
-				'ingest_enabled'    => false,
+				'api_key'               => '',
+				'api_key_clear'         => 1,
+				'public_key'            => '',
+				'project_domain'        => '',
+				'ingest_enabled'        => false,
 				// Back to "never reported": the next connection mints a new key
 				// with its own capabilities, and what the old one recorded says
 				// nothing about it.
-				'seo_head_reported' => null,
+				'seo_head_reported'     => null,
+				'capabilities_reported' => null,
 			)
 		);
 

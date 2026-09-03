@@ -220,6 +220,122 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The block half of the delivery channel is gated on `body_blocks`, and
+	 * CiteCue reads its absence as "cannot place a block" — so a plugin that
+	 * injects one and never says so is sent `body: ''` forever.
+	 *
+	 * Declared together with the injection that honours it, deliberately: the
+	 * capability is what makes CiteCue start sending real block markup, so a
+	 * release that announced it without placing it would put a block on a
+	 * customer's live page that nothing renders.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_declares_the_body_block_capability() {
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertTrue( $sent['body_blocks'] );
+		$this->assertTrue( $sent['seo_head_baseline'] );
+	}
+
+	/**
+	 * All three delivery capabilities ride the one setting that governs the
+	 * response they arrive in: a site that fetches nothing can place nothing,
+	 * and claiming otherwise is the over-claim the capability exists to stop.
+	 *
+	 * @return void
+	 */
+	public function test_switching_injection_off_withdraws_every_delivery_capability() {
+		$this->plugin->settings->update( array( 'seo_head_enabled' => false ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertFalse( $sent['seo_head'] );
+		$this->assertFalse( $sent['body_blocks'] );
+		$this->assertFalse( $sent['seo_head_baseline'] );
+		$this->assertSame( array(), $this->plugin->settings->get( 'capabilities_reported' ) );
+	}
+
+	/**
+	 * An install connected by an EARLIER build declared `seo_head` and nothing
+	 * else, so its `seo_head_reported` agrees and the old check stays quiet —
+	 * while CiteCue still believes the site cannot place a block and withholds
+	 * every one. Without this, the feature would reach nobody who was already
+	 * a customer, and nothing would say why.
+	 *
+	 * @return void
+	 */
+	public function test_a_connection_predating_the_block_capability_asks_for_a_reconnect() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'capabilities_reported' => null,
+			)
+		);
+
+		$this->assertTrue( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * A claim records the set it actually sent, so the same site stops being
+	 * asked the moment it has reconnected.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_records_the_declared_capability_set() {
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$this->assertSame(
+			array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			$this->plugin->settings->get( 'capabilities_reported' )
+		);
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * Installing WooCommerce after connecting leaves stale information on the
+	 * key, not a broken feature — it gates nothing CiteCue sends — so it must
+	 * not raise a prompt that asks the customer to fix something that is not
+	 * wrong.
+	 *
+	 * @return void
+	 */
+	public function test_a_presentational_capability_alone_never_asks_for_a_reconnect() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			)
+		);
+
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * Disconnecting forgets the set: the next connection mints a new key with
+	 * its own capabilities, and what the old one recorded says nothing about it.
+	 *
+	 * @return void
+	 */
+	public function test_disconnecting_forgets_the_declared_capability_set() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'capabilities_reported' => array( 'seo_head' ) ) );
+
+		$this->connect->disconnect();
+
+		$this->assertNull( $this->plugin->settings->get( 'capabilities_reported' ) );
+	}
+
+	/**
 	 * An install that connected before this release injects enriched metadata
 	 * while CiteCue still reports the channel as unable to. That disagreement
 	 * is exactly what the admin prompt exists to catch.

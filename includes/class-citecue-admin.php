@@ -654,6 +654,7 @@ class Citecue_Admin {
 							</label>
 							<p class="description">
 								<?php esc_html_e( 'Only fills gaps. Any tag your theme, WordPress or your SEO plugin already outputs is left exactly as it is — CiteCue never emits a second title or canonical.', 'citecue-ai-auto-fix' ); ?>
+								<?php esc_html_e( 'This also places page enhancements: where you have approved one in CiteCue, a short facts-and-FAQ section is added to the end of that page. It is the only thing here your visitors can see.', 'citecue-ai-auto-fix' ); ?>
 								<?php
 								$seo_plugin = self::detected_seo_plugin();
 								if ( '' !== $seo_plugin ) {

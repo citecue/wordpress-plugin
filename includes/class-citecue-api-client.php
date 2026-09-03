@@ -262,7 +262,13 @@ class Citecue_Api_Client {
 	}
 
 	/**
-	 * GET /api/delivery/v2/seo-head — the enriched head block for one URL.
+	 * GET /api/delivery/v2/seo-head — the enriched head block for one URL, and
+	 * the page-enhancement block that belongs in its body.
+	 *
+	 * The two halves are independent. `body` arrives only for a connection that
+	 * declared the `body_blocks` capability, and either half may be empty while
+	 * the other is not — the endpoint answers 204 only when BOTH are, so a 200
+	 * with an empty `head` is a page whose block is all there is to inject.
 	 *
 	 * CiteCue has three distinct empty answers here and they are not
 	 * interchangeable, so they are passed up untouched rather than collapsed:
@@ -272,7 +278,7 @@ class Citecue_Api_Client {
 	 * uses, and 401 is a rejected key. A 204 carries no body at all.
 	 *
 	 * @param string $url Absolute URL of the page being rendered.
-	 * @return array|WP_Error {status:int, head:string}
+	 * @return array|WP_Error {status:int, head:string, body:string}
 	 */
 	public function get_seo_head( $url ) {
 		$endpoint = add_query_arg(
@@ -289,16 +295,26 @@ class Citecue_Api_Client {
 		}
 
 		$head = '';
+		$body = '';
 		if ( 200 === $result['status'] ) {
 			$data = json_decode( $result['body'], true );
-			if ( is_array( $data ) && isset( $data['head'] ) && is_string( $data['head'] ) ) {
-				$head = $data['head'];
+			if ( is_array( $data ) ) {
+				if ( isset( $data['head'] ) && is_string( $data['head'] ) ) {
+					$head = $data['head'];
+				}
+				// Read independently of `head`: the endpoint returns 200 when
+				// EITHER half is non-empty, so a page with a body block and no
+				// enriched head of its own is a normal answer, not a partial one.
+				if ( isset( $data['body'] ) && is_string( $data['body'] ) ) {
+					$body = $data['body'];
+				}
 			}
 		}
 
 		return array(
 			'status' => $result['status'],
 			'head'   => $head,
+			'body'   => $body,
 		);
 	}
 

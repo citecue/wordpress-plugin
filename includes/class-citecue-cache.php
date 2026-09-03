@@ -255,28 +255,47 @@ class Citecue_Cache {
 	}
 
 	/**
-	 * Cached SEO head block for a URL, or null.
+	 * Cached SEO head block and page-enhancement block for a URL, or null.
+	 *
+	 * `body` is defaulted rather than required, because an entry written by an
+	 * earlier version of the plugin carries only `block` — and those entries
+	 * outlive the upgrade by up to BODY_TTL. Treating a missing key as "no
+	 * block" keeps them readable instead of discarding a day of warm cache on
+	 * every site the moment it updates.
 	 *
 	 * @param string $url Absolute page URL.
-	 * @return array{block:string,cached_at:int}|null
+	 * @return array{block:string,body:string,cached_at:int}|null
 	 */
 	public function get_seo_head( $url ) {
 		$hit = get_transient( $this->seo_head_key( $url ) );
-		return ( is_array( $hit ) && isset( $hit['block'] ) ) ? $hit : null;
+		if ( ! is_array( $hit ) || ! isset( $hit['block'] ) ) {
+			return null;
+		}
+		if ( ! isset( $hit['body'] ) ) {
+			$hit['body'] = '';
+		}
+		return $hit;
 	}
 
 	/**
-	 * Stores a URL's SEO head block.
+	 * Stores a URL's SEO head block and page-enhancement block.
+	 *
+	 * Both halves share one entry because they arrive in one response and are
+	 * evicted by the same events: keying them apart would let a page keep a
+	 * block from before its audience was switched off, which is the exact
+	 * failure delete_seo_head() exists to prevent.
 	 *
 	 * @param string $url   Absolute page URL.
 	 * @param string $block Head markup.
+	 * @param string $body  Page-enhancement markup for before `</body>`.
 	 * @return void
 	 */
-	public function set_seo_head( $url, $block ) {
+	public function set_seo_head( $url, $block, $body = '' ) {
 		set_transient(
 			$this->seo_head_key( $url ),
 			array(
 				'block'     => (string) $block,
+				'body'      => (string) $body,
 				'cached_at' => time(),
 			),
 			self::BODY_TTL
