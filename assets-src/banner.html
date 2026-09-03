@@ -1,0 +1,103 @@
+<meta charset="utf-8">
+<!--
+  Source for the WordPress.org banner. Rendered by build-assets.sh, which
+  inlines the brand fonts as data URIs before handing the file to Chrome.
+
+  The inlining is not an optimization: Chrome's --screenshot does not wait for
+  a font fetched over file://, so a relative @font-face silently renders the
+  whole layout in a fallback face with different metrics. Data URIs are parsed
+  with the stylesheet, so what is measured is what ships.
+
+  Sized in CSS pixels at 772x250 and rendered twice — once at 1x and once with
+  --force-device-scale-factor=2 — so the retina banner is the same design
+  rather than an upscale of the small one.
+-->
+<style>
+@font-face{font-family:'Schibsted Grotesk';font-style:normal;font-weight:400 900;src:url(data:font/woff2;base64,__SG__) format('woff2')}
+@font-face{font-family:'Schibsted Grotesk';font-style:italic;font-weight:400 900;src:url(data:font/woff2;base64,__SGI__) format('woff2')}
+@font-face{font-family:'Instrument Sans';font-style:normal;font-weight:400 700;src:url(data:font/woff2;base64,__IS__) format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:400 700;src:url(data:font/woff2;base64,__JB__) format('woff2')}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:772px;height:250px;overflow:hidden}
+body{
+  background:#F6F5EF;
+  position:relative;
+  font-kerning:normal;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:geometricPrecision;
+}
+.band{position:absolute;top:0;left:0;width:772px;height:5px;background:#101b3d}
+
+.lockup{position:absolute;left:44px;top:30px;display:flex;align-items:center;gap:9px}
+.lockup svg{width:26px;height:26px;display:block}
+.wordmark{
+  font-family:'Schibsted Grotesk';font-weight:700;font-size:21px;
+  letter-spacing:-0.02em;color:#101b3d;line-height:1;
+}
+.wordmark i{font-style:normal;color:#ee6c1e}
+
+.eyebrow{
+  position:absolute;left:44px;top:79px;
+  font-family:'JetBrains Mono';font-weight:500;font-size:10px;
+  letter-spacing:0.2em;color:#ee6c1e;line-height:1;
+}
+
+.head{
+  position:absolute;left:44px;top:102px;
+  font-family:'Schibsted Grotesk';font-size:33px;line-height:37px;
+  letter-spacing:-0.035em;color:#23221C;font-weight:600;
+}
+.head em{display:block;font-style:italic;font-weight:500;color:#ee6c1e}
+
+.pills{position:absolute;left:44px;top:192px;display:flex;gap:8px}
+.pill{
+  font-family:'Instrument Sans';font-weight:500;font-size:11px;color:#23221C;
+  background:#fff;border:1px solid #E6E3D8;border-radius:14px;
+  height:27px;padding:0 13px;display:flex;align-items:center;line-height:1;
+}
+
+/* Sized to clear the top band and the lower edge, so the arc reads as the
+   mark rather than as a cropped shape; only the right side bleeds. Tinted
+   with explicit warm values rather than `opacity`, which mixes the navy
+   toward the paper through grey and turns the mark muddy. */
+.mark{position:absolute;right:-34px;top:50%;transform:translateY(-50%);width:196px;height:196px}
+.mark svg{width:100%;height:100%;display:block}
+</style>
+
+<div class="band"></div>
+
+<div class="lockup">
+  <svg viewBox="4.95 2.75 34.5 34.5" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke-linecap="butt">
+      <path d="M 25.4 7.4 A 13 13 0 1 0 25.4 32.6" stroke="#101b3d" stroke-width="8.5"/>
+      <path d="M 24.7362 7.2498 A 13 13 0 0 1 31.8988 11.3435" stroke="#ee6c1e" stroke-width="8.5"/>
+      <path d="M 24.7362 32.7502 A 13 13 0 0 0 31.8988 28.6565" stroke="#ee6c1e" stroke-width="8.5"/>
+    </g>
+  </svg>
+  <span class="wordmark">CiteCue<i>.</i></span>
+</div>
+
+<div class="eyebrow">AI CRAWLERS &middot; LLMS.TXT &middot; METADATA</div>
+
+<div class="head">Answer AI crawlers<em>with your best page.</em></div>
+
+<!-- Every token here must exist in Citecue_Crawlers::bundled_tokens(). Google-Extended
+     is deliberately absent: it is robots.txt-only and never fetches a page, so the
+     plugin cannot serve it and the banner must not claim otherwise. -->
+<div class="pills">
+  <span class="pill">GPTBot</span>
+  <span class="pill">ClaudeBot</span>
+  <span class="pill">PerplexityBot</span>
+  <span class="pill">GoogleOther</span>
+</div>
+
+<div class="mark">
+  <svg viewBox="4.95 2.75 34.5 34.5" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke-linecap="butt">
+      <path d="M 25.4 7.4 A 13 13 0 1 0 25.4 32.6" stroke="#E8E5D9" stroke-width="8.5"/>
+      <path d="M 24.7362 7.2498 A 13 13 0 0 1 31.8988 11.3435" stroke="#F9DDC7" stroke-width="8.5"/>
+      <path d="M 24.7362 32.7502 A 13 13 0 0 0 31.8988 28.6565" stroke="#F9DDC7" stroke-width="8.5"/>
+    </g>
+  </svg>
+</div>

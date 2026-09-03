@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="CiteCue AI Auto-Fix">
+  <!-- Plugin icon: the CiteCue magnet C reversed out of the brand navy.
+       The directory and the plugin installer both show icons on white cards,
+       so the tile carries the navy and the mark carries the paper — a
+       paper-ground icon would dissolve into the card it sits on.
+
+       The inner viewBox is the mark's own bounding box: all arcs share
+       center (22.2, 20) with r=13 and a stroke width of 8.5, so the ink
+       spans 4.95..39.45 in x and 2.75..37.25 in y. Cropping to exactly that
+       box centers the mark optically; the source logo.svg's 0 0 40 40 box
+       does not, and would sit 2.2 units right of center. -->
+  <rect width="256" height="256" fill="#101b3d"/>
+  <svg x="46" y="46" width="164" height="164" viewBox="4.95 2.75 34.5 34.5">
+    <g fill="none" stroke-linecap="butt">
+      <path d="M 25.4 7.4 A 13 13 0 1 0 25.4 32.6" stroke="#F6F5EF" stroke-width="8.5"/>
+      <path d="M 24.7362 7.2498 A 13 13 0 0 1 31.8988 11.3435" stroke="#ee6c1e" stroke-width="8.5"/>
+      <path d="M 24.7362 32.7502 A 13 13 0 0 0 31.8988 28.6565" stroke="#ee6c1e" stroke-width="8.5"/>
+    </g>
+  </svg>
+</svg>
