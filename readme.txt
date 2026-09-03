@@ -8,15 +8,17 @@ Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Answers AI crawlers with a CiteCue-optimized version of the page they asked for, and fills only the metadata gaps your SEO plugin leaves behind.
+AEO for WordPress: answers AI crawlers with a CiteCue-optimized version of the page they asked for, and fills your SEO plugin's metadata gaps.
 
 == Description ==
 
-CiteCue AI Auto-Fix is the WordPress end of CiteCue. It decides, per request, which version of a page WordPress returns — the optimized one to a recognised AI crawler, your normal page to everyone else — and it can do that only from inside WordPress, before the theme renders.
+CiteCue AI Auto-Fix is the WordPress end of CiteCue, an answer engine optimization (AEO) platform. It decides, per request, which version of a page WordPress returns — the optimized one to a recognised AI crawler, your normal page to everyone else — and it can do that only from inside WordPress, before the theme renders.
 
 * **Per-request delivery to AI crawlers** — when GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User or any other agent in the crawler registry requests a page, the plugin returns the CiteCue-optimized version of that URL. Human visitors always see your normal site, and optimized responses are never cached for regular traffic. Any miss, timeout or outage passes straight through to the normal page.
 * **Gap-filling page metadata** — adds CiteCue's title, meta description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them on the page a human sees. It fills gaps only: it reads what your theme, WordPress and your SEO plugin actually printed into `<head>` and adds only what none of them emitted, so there is never a second title or canonical.
 * **Page enhancements** — where you have approved one in CiteCue, adds a short facts-and-FAQ section to the end of a page you already have, built from your own answered facts and grounded FAQ entries rather than generated. It is placed only if the page does not already carry one, and it is the only thing this plugin adds that your visitors can see.
+* **Recognises 18 AI crawlers, and learns new ones on its own** — GPTBot, ChatGPT-User, ClaudeBot, PerplexityBot, GoogleOther, Amazonbot, Bytespider, CCBot, meta-externalagent, MistralAI-User, DuckAssistBot and more. The registry refreshes daily from CiteCue, so an agent that launched last week is recognised without updating the plugin.
+* **Never makes a visitor wait** — the path that renders a page for a person reads cache only; nothing on it calls out to the network. A URL with nothing cached yet renders untouched and the fetch is queued for afterwards, so the first visitor to a cold page pays one un-enriched view rather than one slow one. Requests from AI crawlers are the deliberate exception — only a bot is waiting there — and even those are bounded by a three-second timeout, a per-minute lookup budget and a circuit breaker that stops the plugin trying at all while CiteCue is unreachable.
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
 * **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
 
@@ -92,9 +94,25 @@ Almost always because CiteCue has no optimized version of that URL yet. Connecti
 
 Settings → CiteCue → "Recent AI crawler activity" tells you which it is. A "passthrough" row for the URL means the plugin ran and CiteCue reported no optimized page. An "error" row means the call to CiteCue failed. No row at all can mean either that the plugin declined before calling CiteCue (a recent miss, a backed-off connection, serving switched off) or that a full-page cache or CDN answered before WordPress ran.
 
+= Is this cloaking? =
+
+No, and the distinction is the one search engines draw: cloaking is showing a crawler different *content* than a person in order to manipulate ranking.
+
+The optimized page goes only to AI assistants that identify themselves in their User-Agent, never to a person, and it carries the same facts as the page it stands for. Google appears on both sides of that line and the difference matters: `GoogleOther`, which Google uses for its AI products, is in the crawler registry and is served the optimized page; `Googlebot`, which crawls for Search, is not in the registry and gets your ordinary page.
+
+What a person and Googlebot both receive is your page, plus CiteCue's metadata in the head, plus a page enhancement on the pages where you approved one. All three are identical for both — nothing is shown to a crawler and withheld from a reader, which is the test that actually matters.
+
+= Will it slow my site down? =
+
+Not for your visitors. On a page CiteCue has something for, the plugin reads a cached block and adds it to the response; nothing on that path calls out to the network. On a page it has nothing cached for, it injects nothing and queues the fetch for WP-Cron, so the first visitor to a cold URL pays one un-enriched view rather than one slow one.
+
+Requests from recognised AI crawlers are handled differently on purpose: that path may make a live lookup, because only a bot is waiting for it. It is bounded by a three-second timeout and a per-minute lookup budget, and a circuit breaker stops the plugin trying at all while CiteCue is unreachable, so a slow or failing CiteCue costs those requests a passthrough rather than an open-ended wait.
+
 = Will human visitors ever see the optimized version? =
 
-No. Only requests whose User-Agent matches the AI-crawler registry are served the optimized *page*, and those responses are never cached for regular traffic. Enriched metadata is different and deliberately so: those are head-only tags describing the page a visitor is already looking at, so they are added for everyone, including Google. The visible page is never altered.
+No. Only requests whose User-Agent matches the AI-crawler registry are served the optimized *page*, and those responses are never cached for regular traffic.
+
+Two things are added for everyone, deliberately. Enriched metadata is head-only tags describing the page a visitor is already looking at. A page enhancement, where you have approved one, is a short facts-and-FAQ section at the end of that page. Both are additions to your page; neither rewrites it, and neither is shown to crawlers and withheld from people.
 
 = Will this conflict with Yoast SEO, Rank Math, All in One SEO or SEOPress? =
 
