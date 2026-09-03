@@ -3,6 +3,11 @@
  * A stand-in for app.citecue.com, for exercising the plugin's delivery paths
  * against a real HTTP round trip. Logs every request so the test can assert on
  * what the plugin actually sent, not just on what it did with the answer.
+ *
+ * Runs under the PHP built-in server, OUTSIDE WordPress — nothing here may
+ * call a WordPress function.
+ *
+ * @package Citecue
  */
 
 $log  = __DIR__ . '/requests.log';
@@ -11,7 +16,7 @@ $path = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
 $headers = function_exists( 'getallheaders' ) ? getallheaders() : array();
 file_put_contents(
 	$log,
-	wp_json_encode_fallback(
+	citecue_rig_json(
 		array(
 			'path'          => $_SERVER['REQUEST_URI'],
 			'method'        => $_SERVER['REQUEST_METHOD'],
@@ -22,8 +27,15 @@ file_put_contents(
 	FILE_APPEND
 );
 
-function wp_json_encode_fallback( $v ) {
-	return json_encode( $v, JSON_UNESCAPED_SLASHES );
+/**
+ * JSON for the request log. Named for what it is: WordPress is not loaded
+ * here, so wp_json_encode() does not exist.
+ *
+ * @param mixed $value Value to encode.
+ * @return string
+ */
+function citecue_rig_json( $value ) {
+	return (string) json_encode( $value, JSON_UNESCAPED_SLASHES ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in this process.
 }
 
 /**

@@ -30,7 +30,12 @@ function check( $name, $ok, $note = '' ) {
 	}
 }
 
-/** Fetches the rendered page. */
+/**
+ * Fetches the rendered page.
+ *
+ * @param string $url Page to fetch.
+ * @return string
+ */
 function render( $url ) {
 	$ch = curl_init( $url );
 	curl_setopt_array(

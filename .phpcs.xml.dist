@@ -65,12 +65,25 @@
 		Test files are not shipped: they legitimately reassign WordPress
 		globals, declare unprefixed test classes, and carry docblocks that hold
 		only PHPUnit annotations (@covers, @dataProvider).
+
+		The local rig (`bin/rig/*`, driven by `bin/local-rig.sh`) is the same
+		category and then some. It is not shipped — `bin/` is export-ignored and
+		the zip guard refuses an archive containing it — and it is not plugin
+		code: these are standalone scripts that install a throwaway WordPress,
+		seed it and assert against rendered pages. Two of them do not run inside
+		WordPress at all. Prefixing a local `$url` in a test harness with
+		`citecue_` would be ceremony that makes the harness harder to read
+		without making anything safer. Everything the sniffs flag there that IS
+		worth fixing — missing docblocks, short ternaries — is fixed rather than
+		excused; only these four categories are waived.
 	-->
 	<rule ref="WordPress.WP.GlobalVariablesOverride">
 		<exclude-pattern>/tests/*</exclude-pattern>
+		<exclude-pattern>/bin/rig/*</exclude-pattern>
 	</rule>
 	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
 		<exclude-pattern>/tests/*</exclude-pattern>
+		<exclude-pattern>/bin/rig/*</exclude-pattern>
 	</rule>
 	<rule ref="WordPress.PHP.DevelopmentFunctions">
 		<exclude-pattern>/tests/*</exclude-pattern>
@@ -83,6 +96,7 @@
 	</rule>
 	<rule ref="WordPress.Files.FileName">
 		<exclude-pattern>/tests/*</exclude-pattern>
+		<exclude-pattern>/bin/rig/*</exclude-pattern>
 	</rule>
 	<!-- PHPUnit calls assertion helpers in camelCase. -->
 	<rule ref="WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid">

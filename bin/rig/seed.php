@@ -33,8 +33,8 @@ if ( ! is_plugin_active( 'citecue-ai-auto-fix/citecue.php' ) ) {
 $plugin = Citecue_Plugin::instance();
 $plugin->settings->update(
 	array(
-		'api_key'               => getenv( 'RIG_API_KEY' ) ?: 'ck_live_rig',
-		'public_key'            => getenv( 'RIG_PUBLIC_KEY' ) ?: 'pk_rig',
+		'api_key'               => '' !== (string) getenv( 'RIG_API_KEY' ) ? (string) getenv( 'RIG_API_KEY' ) : 'ck_live_rig',
+		'public_key'            => '' !== (string) getenv( 'RIG_PUBLIC_KEY' ) ? (string) getenv( 'RIG_PUBLIC_KEY' ) : 'pk_rig',
 		'project_domain'        => '127.0.0.1',
 		'seo_head_enabled'      => true,
 		'seo_head_reported'     => true,
