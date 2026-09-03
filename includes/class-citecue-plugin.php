@@ -193,6 +193,11 @@ final class Citecue_Plugin {
 		}
 
 		$this->crawlers->refresh( $this->api );
+
+		// Consent can be withdrawn at CiteCue, and nothing tells this site when
+		// it happens. Costs a request only where pushes are actually switched
+		// on, which the default is not.
+		$this->connect->refresh_content_push();
 	}
 
 	/**

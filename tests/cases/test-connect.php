@@ -408,6 +408,207 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A project list that says CiteCue holds no signing secret for this site
+	 * closes the switch here, so the screen stops promising a channel that
+	 * cannot deliver.
+	 *
+	 * @return void
+	 */
+	public function test_withdrawn_consent_switches_pushes_off() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$revoked = $this->plugin->connect->reconcile_content_push( $this->projects( array( 'contentPush' => false ) ) );
+
+		$this->assertTrue( $revoked );
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+		$this->assertGreaterThan( 0, (int) $this->plugin->settings->get( 'content_push_revoked_at' ) );
+	}
+
+	/**
+	 * A CiteCue that still holds the secret changes nothing.
+	 *
+	 * @return void
+	 */
+	public function test_held_consent_leaves_pushes_on() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$this->assertFalse( $this->plugin->connect->reconcile_content_push( $this->projects( array( 'contentPush' => true ) ) ) );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * The switch is never turned ON from a remote read. `contentPush` says
+	 * CiteCue holds a signing secret, which is not the same as this site
+	 * agreeing to be written to — that decision is the administrator's, and
+	 * flipping it from here would grant write access to a site whose owner had
+	 * deliberately refused it.
+	 *
+	 * @return void
+	 */
+	public function test_a_remote_read_never_switches_pushes_on() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => false ) );
+
+		$this->plugin->connect->reconcile_content_push( $this->projects( array( 'contentPush' => true ) ) );
+
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A response from a CiteCue that predates the field must not read as a
+	 * withdrawal. Defaulting the absent key to false would switch pushes off on
+	 * every site at once, which is the one way this reconcile could do real
+	 * damage.
+	 *
+	 * @return void
+	 */
+	public function test_an_absent_field_is_not_a_withdrawal() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$this->assertFalse( $this->plugin->connect->reconcile_content_push( $this->projects() ) );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A list this site's own project is not in says nothing about this site,
+	 * and acting on nothing would revoke a working connection.
+	 *
+	 * @return void
+	 */
+	public function test_a_list_without_this_project_changes_nothing() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$others = array(
+			array(
+				'publicKey'   => 'pk_somebody_else',
+				'domain'      => 'other.example',
+				'contentPush' => false,
+			),
+		);
+
+		$this->assertFalse( $this->plugin->connect->reconcile_content_push( $others ) );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A bad afternoon on the network is not a withdrawal of consent.
+	 *
+	 * @return void
+	 */
+	public function test_a_transport_failure_never_switches_pushes_off() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+		$this->http->queue_error( 'config' );
+
+		$this->assertFalse( $this->plugin->connect->refresh_content_push() );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A site with pushes switched off has nothing to reconcile and spends no
+	 * request doing it — which is most sites, since off is the default.
+	 *
+	 * @return void
+	 */
+	public function test_a_site_without_pushes_spends_no_request() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => false ) );
+
+		$this->assertFalse( $this->plugin->connect->refresh_content_push() );
+		$this->assertSame( 0, $this->http->count() );
+	}
+
+	/**
+	 * The daily sync is where a withdrawal made at CiteCue is noticed, so a
+	 * stale switch corrects itself within a day instead of waiting for somebody
+	 * to press Test connection.
+	 *
+	 * @return void
+	 */
+	public function test_the_daily_sync_reconciles_consent() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+		$this->http->queue(
+			'crawlers',
+			200,
+			wp_json_encode(
+				array(
+					'version' => 1,
+					'tokens'  => array( 'GPTBot' ),
+				)
+			)
+		);
+		$this->http->queue( 'config', 200, wp_json_encode( array( 'projects' => $this->projects( array( 'contentPush' => false ) ) ) ) );
+
+		$this->plugin->daily_sync();
+
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * The plugin's OWN claim is the one response where an omitted `ingest` is a
+	 * definite "the customer did not tick the box" rather than "not mentioned":
+	 * it sent a secret and asked, and the contract omits the flag rather than
+	 * sending false. Leaving the switch alone would keep a site reading
+	 * "Accepted" after a reconnect that withdrew consent.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_that_omits_consent_switches_pushes_off() {
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * And a claim that grants consent turns it back on, clearing the
+	 * explanation left by any earlier withdrawal.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_that_grants_consent_switches_pushes_on() {
+		$this->plugin->settings->update(
+			array(
+				'ingest_enabled'          => false,
+				'content_push_revoked_at' => time() - DAY_IN_SECONDS,
+			)
+		);
+		$this->http->queue( 'connect', 200, $this->claim_payload( array( 'ingest' => true ) ) );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+		$this->assertSame( 0, (int) $this->plugin->settings->get( 'content_push_revoked_at' ) );
+	}
+
+	/**
+	 * A project list carrying this site's own key, for the consent reconcile.
+	 *
+	 * @param array $extra Extra keys on the entry (omit contentPush entirely to
+	 *                     stand in for a CiteCue that predates the field).
+	 * @return array
+	 */
+	private function projects( array $extra = array() ) {
+		return array(
+			array_merge(
+				array(
+					'publicKey' => (string) $this->plugin->settings->get( 'public_key' ),
+					'domain'    => 'example.org',
+					'enabled'   => true,
+				),
+				$extra
+			),
+		);
+	}
+
+	/**
 	 * An install that connected before this release injects enriched metadata
 	 * while CiteCue still reports the channel as unable to. That disagreement
 	 * is exactly what the admin prompt exists to catch.

@@ -189,10 +189,29 @@ class Citecue_Connect {
 
 		// CiteCue's connect screen is where the customer is told that content
 		// can be pushed into their site, so it is the only place that may turn
-		// ingest on. A response that omits the flag leaves the opt-in exactly
-		// as it was — silence never grants write access.
-		if ( isset( $result['ingest'] ) ) {
-			$update['ingest_enabled'] = (bool) $result['ingest'];
+		// ingest on. Silence still never grants write access — an absent flag
+		// cannot make this true.
+		//
+		// But absence HERE also revokes, which it does nowhere else. This is
+		// the plugin's own claim: it sent an ingest secret and asked, and the
+		// wire contract omits the flag entirely rather than sending false, so
+		// on this one response absence is a definite "the customer did not tick
+		// the box" rather than "not mentioned". Leaving the switch as it was
+		// would keep a site reading "Accepted" after a reconnect that withdrew
+		// consent and cleared the secret CiteCue signs with.
+		$had_ingest               = (bool) $settings->get( 'ingest_enabled' );
+		$has_ingest               = ! empty( $result['ingest'] );
+		$update['ingest_enabled'] = $has_ingest;
+
+		// Written here rather than left to sanitize(), which only runs where
+		// register_setting() has — not on every path that reaches this.
+		if ( $has_ingest ) {
+			$update['content_push_revoked_at'] = 0;
+		} elseif ( $had_ingest ) {
+			// Only on a real withdrawal. A first connection that never had
+			// pushes on has nothing to explain, and stamping one would put a
+			// message about a change on a screen where nothing changed.
+			$update['content_push_revoked_at'] = time();
 		}
 
 		$settings->update( $update );
@@ -223,16 +242,18 @@ class Citecue_Connect {
 				// flag — but sanitize() only runs once register_setting() has,
 				// and the empty value is what a write that bypasses the filter
 				// has to see. Either path must end up with no key.
-				'api_key'               => '',
-				'api_key_clear'         => 1,
-				'public_key'            => '',
-				'project_domain'        => '',
-				'ingest_enabled'        => false,
+				'api_key'                 => '',
+				'api_key_clear'           => 1,
+				'public_key'              => '',
+				'project_domain'          => '',
+				'ingest_enabled'          => false,
 				// Back to "never reported": the next connection mints a new key
 				// with its own capabilities, and what the old one recorded says
 				// nothing about it.
-				'seo_head_reported'     => null,
-				'capabilities_reported' => null,
+				'seo_head_reported'       => null,
+				'capabilities_reported'   => null,
+				// No connection, nothing to explain about its push channel.
+				'content_push_revoked_at' => 0,
 			)
 		);
 
@@ -240,6 +261,98 @@ class Citecue_Connect {
 		delete_option( 'citecue_auth_failed' );
 		delete_option( self::VERIFY_OPTION );
 		$this->plugin->cache->flush();
+	}
+
+	/**
+	 * Fetches the delivery config and reconciles content-push consent from it.
+	 *
+	 * Runs on the daily sync. Consent can be withdrawn at CiteCue — by
+	 * reconnecting with the box unticked, which clears the stored signing
+	 * secret — and nothing tells this site when it happens, so without a
+	 * periodic read the switch here would keep reading "Accepted" over a
+	 * channel that can no longer deliver anything.
+	 *
+	 * Costs a request only on a site that actually has pushes switched on. A
+	 * site with the default (off) has nothing to reconcile and spends nothing,
+	 * which is most of them.
+	 *
+	 * @return bool Whether the switch was turned off.
+	 */
+	public function refresh_content_push() {
+		if ( ! $this->plugin->settings->get( 'ingest_enabled' ) ) {
+			return false;
+		}
+
+		$projects = $this->plugin->api->get_config();
+		if ( is_wp_error( $projects ) ) {
+			return false;
+		}
+
+		return $this->reconcile_content_push( $projects );
+	}
+
+	/**
+	 * Turns the local "accept pushed content" switch off when CiteCue no longer
+	 * holds a secret it could sign a push with.
+	 *
+	 * **Revoke only.** A `contentPush` of true never turns the switch ON. The
+	 * field says CiteCue holds a signing secret, which is not the same as this
+	 * site agreeing to be written to — that switch is the administrator's, and
+	 * flipping it on from a remote read would grant write access to a site
+	 * whose owner had deliberately refused it. Silence never grants; this only
+	 * ever closes.
+	 *
+	 * **Absent is not false.** The key is read with array_key_exists() rather
+	 * than a truthiness test, because a response from a CiteCue that predates
+	 * the field would otherwise look like an explicit withdrawal and switch
+	 * pushes off on every site at once. Only a `contentPush` that is present
+	 * and false revokes; anything else leaves the switch alone.
+	 *
+	 * Anything ambiguous is also left alone — a transport failure (handled by
+	 * the caller), a project list this site's own key is not in. Each is a
+	 * reason to know nothing, and acting on nothing would revoke a working
+	 * connection over a bad afternoon on the network.
+	 *
+	 * @param array $projects Project list as returned by GET /config.
+	 * @return bool Whether the switch was turned off.
+	 */
+	public function reconcile_content_push( $projects ) {
+		$settings = $this->plugin->settings;
+
+		if ( ! $settings->get( 'ingest_enabled' ) || ! is_array( $projects ) ) {
+			return false;
+		}
+
+		$public_key = (string) $settings->get( 'public_key' );
+		if ( '' === $public_key ) {
+			return false;
+		}
+
+		foreach ( $projects as $project ) {
+			if ( ! is_array( $project ) || ! isset( $project['publicKey'] ) ) {
+				continue;
+			}
+			if ( $public_key !== (string) $project['publicKey'] ) {
+				continue;
+			}
+			if ( ! array_key_exists( 'contentPush', $project ) || ! empty( $project['contentPush'] ) ) {
+				return false;
+			}
+
+			// Both in one write: the timestamp exists to explain the switch
+			// beside it, and sanitize() clears it whenever pushes are on, so a
+			// stale explanation can never outlive the state it explains.
+			$settings->update(
+				array(
+					'ingest_enabled'          => false,
+					'content_push_revoked_at' => time(),
+				)
+			);
+
+			return true;
+		}
+
+		return false;
 	}
 
 	/**

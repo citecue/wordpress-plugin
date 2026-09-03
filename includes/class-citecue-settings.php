@@ -37,32 +37,37 @@ class Citecue_Settings {
 	public static function defaults() {
 		return array(
 			// Connection.
-			'api_base'              => self::DEFAULT_API_BASE,
-			'api_key'               => '',
-			'public_key'            => '',
-			'project_domain'        => '',
+			'api_base'                => self::DEFAULT_API_BASE,
+			'api_key'                 => '',
+			'public_key'              => '',
+			'project_domain'          => '',
 			// Delivery.
-			'serve_enabled'         => true,
-			'llms_txt_enabled'      => true,
-			'seo_head_enabled'      => true,
+			'serve_enabled'           => true,
+			'llms_txt_enabled'        => true,
+			'seo_head_enabled'        => true,
 			// The value of seo_head_enabled last reported to CiteCue, or null
 			// if this site has never reported one. CiteCue records the
 			// capability on the API key at connect time and has no other way to
 			// learn it, so this is how the settings screen knows to ask for a
 			// reconnect — see needs_seo_head_reconnect().
-			'seo_head_reported'     => null,
+			'seo_head_reported'       => null,
 			// The capability names last reported to CiteCue, or null if this
 			// site has never reported any. Kept alongside seo_head_reported
 			// rather than replacing it: that one tracks a SETTING the customer
 			// can toggle, this one tracks what this BUILD of the plugin is able
 			// to do, and only one of them changes when the plugin updates.
-			'capabilities_reported' => null,
+			'capabilities_reported'   => null,
 			// Content ingest (CiteCue -> WordPress post creation).
-			'ingest_enabled'        => false,
-			'ingest_secret'         => '',
-			'ingest_post_status'    => 'draft',
-			'ingest_post_type'      => 'post',
-			'ingest_author'         => 0,
+			'ingest_enabled'          => false,
+			// When CiteCue was last found to hold no signing secret for this
+			// site while pushes were still switched on here, so the settings
+			// screen can say why the toggle moved. 0 when that has not
+			// happened, or since been resolved.
+			'content_push_revoked_at' => 0,
+			'ingest_secret'           => '',
+			'ingest_post_status'      => 'draft',
+			'ingest_post_type'        => 'post',
+			'ingest_author'           => 0,
 		);
 	}
 
@@ -387,6 +392,15 @@ class Citecue_Settings {
 		$out['llms_txt_enabled'] = ! empty( $input['llms_txt_enabled'] );
 		$out['seo_head_enabled'] = ! empty( $input['seo_head_enabled'] );
 		$out['ingest_enabled']   = ! empty( $input['ingest_enabled'] );
+		// Not a form field: written only by the consent reconcile, and cleared
+		// the moment pushes are switched back on, so a stale explanation can
+		// never outlive the state it explains.
+		if ( array_key_exists( 'content_push_revoked_at', $input ) ) {
+			$out['content_push_revoked_at'] = (int) $input['content_push_revoked_at'];
+		}
+		if ( ! empty( $out['ingest_enabled'] ) ) {
+			$out['content_push_revoked_at'] = 0;
+		}
 
 		if ( isset( $input['ingest_post_status'] ) && in_array( $input['ingest_post_status'], array( 'draft', 'pending', 'publish' ), true ) ) {
 			$out['ingest_post_status'] = $input['ingest_post_status'];

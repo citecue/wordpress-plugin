@@ -142,6 +142,7 @@ The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploadin
 * Never placed twice. A page that already carries the `data-citecue="page-enhancement"` marker — because CiteCue's Worker fronts the site, or because the section is already in the post — is left exactly as it is.
 * The block rides the `/seo-head` response the plugin already fetches for metadata, so an enhanced page costs no extra request, and the same rules apply: cache-only on the render path, so a visitor never waits on CiteCue, and nothing at all is fetched on a site with metadata injection switched off.
 * Existing connections need one reconnect. CiteCue records what a plugin can do when it connects and withholds anything it never announced, so a site connected before this release is sent no blocks until it reconnects — Settings → CiteCue now says so, where before it only noticed a changed metadata setting.
+* "Accept pushed content" now corrects itself. If CiteCue no longer holds a signing secret for this site — because you reconnected without allowing content pushes — the switch here turns off and says so, instead of reporting a channel that cannot deliver anything. It is never switched back on remotely: that stays your decision, on this screen.
 * The plugin also now asks for CiteCue's site-wide identity metadata on pages that have none of their own. It is gap-filling like everything else in the head: if your theme or SEO plugin already prints structured data, CiteCue's is dropped rather than added beside it.
 
 = 1.1.2 =
