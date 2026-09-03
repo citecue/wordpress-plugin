@@ -781,6 +781,50 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A page that QUOTES the marker in a code sample has not been given a
+	 * block, and must still get one. This is the lesson enhance() already
+	 * records about the head, applied to the body: escaped markup in page
+	 * content is content, not markup, and a substring search cannot tell the
+	 * difference — it would withhold that page's enhancement forever.
+	 *
+	 * @return void
+	 */
+	public function test_a_page_quoting_the_marker_still_gets_its_block() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$sample    = '<p>Add <code>&lt;section data-citecue="page-enhancement"&gt;</code> to your template.</p>';
+		$delivered = $injector->enhance( $this->document( '', $sample ) );
+
+		$this->assertStringContainsString( self::BODY_BLOCK, $delivered );
+	}
+
+	/**
+	 * The FAQ payload CiteCue composes INSIDE the block carries
+	 * `data-citecue="page-enhancement-faq"`. It is a sibling value, not the
+	 * section marker, so on its own it must not read as a block already placed.
+	 *
+	 * @return void
+	 */
+	public function test_the_faq_sibling_value_is_not_the_section_marker() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$faq_only  = '<script type="application/ld+json" data-citecue="page-enhancement-faq">{}</script>';
+		$delivered = $injector->enhance( $this->document( '', $faq_only ) );
+
+		$this->assertStringContainsString( self::BODY_BLOCK, $delivered );
+	}
+
+	/**
 	 * A block over the wire cap is dropped rather than placed. The endpoint
 	 * refuses to send one this large, so a block that arrives anyway is a
 	 * generation bug — and the cap is what keeps that bug costing one page

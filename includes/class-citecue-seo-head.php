@@ -97,8 +97,22 @@ class Citecue_Seo_Head {
 	 * origin is fronted by CiteCue's Worker, or whose post content already
 	 * carries the section, the block is in the document before this plugin sees
 	 * it — and a second copy is the one failure mode a visitor actually notices.
+	 *
+	 * Scoped to a real opening tag, and to the whole attribute value, for the
+	 * reason this class already learned once about the head (see enhance()): a
+	 * page that quotes markup in a code sample contains whatever it quotes. A
+	 * bare substring search reads `&lt;section data-citecue="page-enhancement"&gt;`
+	 * in a documentation page as a block already placed, and silently withholds
+	 * that page's enhancement forever. Requiring `<tag …` means escaped markup
+	 * cannot match, because the escaped form has no `<`.
+	 *
+	 * The trailing boundary matters for a live value, not a hypothetical one:
+	 * CiteCue composes the FAQ payload inside the block as
+	 * `data-citecue="page-enhancement-faq"`, so a prefix match would treat that
+	 * sibling as the section marker. The section is what delimits the region
+	 * CiteCue owns, and only the section may answer this question.
 	 */
-	const BLOCK_MARKER_PATTERN = '#data-citecue\s*=\s*["\']?page-enhancement#i';
+	const BLOCK_MARKER_PATTERN = '#<[a-z][^>]*\sdata-citecue\s*=\s*(["\']?)page-enhancement\1[\s/>]#i';
 
 	/**
 	 * Largest page-enhancement block that may be injected, in bytes. Mirrors
