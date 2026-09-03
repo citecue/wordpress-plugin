@@ -241,10 +241,22 @@ class Citecue_Admin {
 			return;
 		}
 
-		$enabled = (bool) $this->plugin->settings->get( 'seo_head_enabled' );
-		$message = $enabled
-			? __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' )
-			: __( 'enriched page metadata is switched off here, but CiteCue still expects this site to add it. Reconnect so CiteCue stops reporting metadata it is not getting.', 'citecue-ai-auto-fix' );
+		switch ( $this->plugin->settings->seo_head_reconnect_reason() ) {
+			case 'disabled':
+				$message = __( 'enriched page metadata is switched off here, but CiteCue still expects this site to add it. Reconnect so CiteCue stops reporting metadata it is not getting.', 'citecue-ai-auto-fix' );
+				break;
+
+			case 'capabilities':
+				// The upgrade case, and the common one: the metadata setting has
+				// not moved, so saying anything about metadata would send an
+				// administrator looking for a fault that is not there.
+				$message = __( 'this version can place CiteCue page enhancements — the facts-and-FAQ sections you approve — on your pages, but CiteCue does not know that yet. Until you reconnect, it will hold on to every enhancement you approve instead of sending it here.', 'citecue-ai-auto-fix' );
+				break;
+
+			default:
+				$message = __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' );
+				break;
+		}
 		?>
 		<div class="notice notice-warning">
 			<p>
@@ -881,11 +893,24 @@ class Citecue_Admin {
 					<td>
 						<?php if ( ! $settings->get( 'seo_head_enabled' ) ) : ?>
 							<?php esc_html_e( 'Off', 'citecue-ai-auto-fix' ); ?>
-						<?php elseif ( $settings->needs_seo_head_reconnect() ) : ?>
+						<?php elseif ( in_array( $settings->seo_head_reconnect_reason(), array( 'enabled', 'disabled' ), true ) ) : ?>
 							<span style="color:#996800;">&#8212;</span>
 							<?php esc_html_e( 'Enriched here, but CiteCue has not been told yet — reconnect to update it.', 'citecue-ai-auto-fix' ); ?>
 						<?php else : ?>
 							<?php esc_html_e( 'Enriched on live pages (gaps only)', 'citecue-ai-auto-fix' ); ?>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'Page enhancements', 'citecue-ai-auto-fix' ); ?></td>
+					<td>
+						<?php if ( ! $settings->get( 'seo_head_enabled' ) ) : ?>
+							<?php esc_html_e( 'Off — they arrive with page metadata, which is switched off above.', 'citecue-ai-auto-fix' ); ?>
+						<?php elseif ( '' !== $settings->seo_head_reconnect_reason() ) : ?>
+							<span style="color:#996800;">&#8212;</span>
+							<?php esc_html_e( 'Ready here, but CiteCue has not been told yet — reconnect to update it.', 'citecue-ai-auto-fix' ); ?>
+						<?php else : ?>
+							<?php esc_html_e( 'Placed on the pages you have approved', 'citecue-ai-auto-fix' ); ?>
 						<?php endif; ?>
 					</td>
 				</tr>

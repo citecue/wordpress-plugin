@@ -336,6 +336,78 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The prompt has to say what actually went stale. A site upgrading into a
+	 * new capability has not touched its metadata setting, and telling it that
+	 * its metadata is not reaching CiteCue sends an administrator looking for a
+	 * fault that is not there.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_capability_set_is_not_reported_as_a_metadata_problem() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'capabilities_reported' => array( 'seo_head' ),
+			)
+		);
+
+		$this->assertSame( 'capabilities', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * A moved metadata setting still reports itself as one, in both directions.
+	 *
+	 * @return void
+	 */
+	public function test_a_moved_metadata_setting_reports_itself() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => false,
+				'seo_head_enabled'      => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			)
+		);
+		$this->assertSame( 'enabled', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported' => true,
+				'seo_head_enabled'  => false,
+			)
+		);
+		$this->assertSame( 'disabled', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * Consent is never a reason to reconnect for this. Content pushes gate the
+	 * ingest endpoint and nothing on the delivery path — page enhancements
+	 * arrive through the same authenticated read as the metadata — so a site
+	 * that has not allowed pushes is fully configured for them, and prompting
+	 * it would be asking an administrator to grant write access to their site
+	 * for a feature that does not use it.
+	 *
+	 * @return void
+	 */
+	public function test_withheld_content_push_consent_is_never_a_reconnect_reason() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+				'ingest_enabled'        => false,
+				'ingest_secret'         => '',
+			)
+		);
+
+		$this->assertSame( '', $this->plugin->settings->seo_head_reconnect_reason() );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
 	 * An install that connected before this release injects enriched metadata
 	 * while CiteCue still reports the channel as unable to. That disagreement
 	 * is exactly what the admin prompt exists to catch.

@@ -214,28 +214,59 @@ class Citecue_Settings {
 	 * @return bool
 	 */
 	public function needs_seo_head_reconnect() {
+		return '' !== $this->seo_head_reconnect_reason();
+	}
+
+	/**
+	 * WHY a reconnect is wanted, or '' for a connection that agrees with
+	 * CiteCue — so the prompt can say what has actually gone stale.
+	 *
+	 * The three answers ask for the same reconnect but are not the same
+	 * message, and telling a customer the wrong one is worse than saying
+	 * nothing: a site whose metadata setting has not moved, being told its
+	 * metadata is not reaching CiteCue, will go looking for a fault that is not
+	 * there.
+	 *
+	 *  - `enabled`      — this site injects metadata and CiteCue thinks it cannot.
+	 *  - `disabled`     — the reverse: it has been switched off since connecting.
+	 *  - `capabilities` — the metadata setting agrees, but this build can do
+	 *                     something the connection never announced. What every
+	 *                     site upgrading into a new capability reports.
+	 *
+	 * Consent is deliberately NOT among them. Whether the customer allows
+	 * content pushes gates the ingest endpoint and nothing on this path — page
+	 * enhancements arrive through the same authenticated `/seo-head` read as
+	 * the metadata — so prompting for it here would be asking an administrator
+	 * to grant write access to their site for a feature that does not use it.
+	 * "Content from CiteCue" reports that state, on its own, where it belongs.
+	 *
+	 * @return string One of 'enabled', 'disabled', 'capabilities', or ''.
+	 */
+	public function seo_head_reconnect_reason() {
 		if ( ! $this->is_connected() ) {
-			return false;
+			return '';
 		}
 
 		$reported = $this->get( 'seo_head_reported' );
 		$known    = null === $reported ? false : (bool) $reported;
+		$enabled  = (bool) $this->get( 'seo_head_enabled' );
 
-		if ( (bool) $this->get( 'seo_head_enabled' ) !== $known ) {
-			return true;
+		if ( $enabled !== $known ) {
+			return $enabled ? 'enabled' : 'disabled';
 		}
 
 		$declared = $this->get( 'capabilities_reported' );
+		$active   = $this->active_delivery_capabilities();
 
 		// Never reported a set at all: an install connected before this plugin
 		// declared capabilities by name. It is under-claiming everything it can
 		// now do, so it needs a reconnect the moment there is anything to
 		// claim — and needs no reconnect when there is not.
 		if ( ! is_array( $declared ) ) {
-			return array() !== $this->active_delivery_capabilities();
+			return array() === $active ? '' : 'capabilities';
 		}
 
-		return $this->active_delivery_capabilities() !== $declared;
+		return $active === $declared ? '' : 'capabilities';
 	}
 
 	/**
