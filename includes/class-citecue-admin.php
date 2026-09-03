@@ -241,10 +241,22 @@ class Citecue_Admin {
 			return;
 		}
 
-		$enabled = (bool) $this->plugin->settings->get( 'seo_head_enabled' );
-		$message = $enabled
-			? __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' )
-			: __( 'enriched page metadata is switched off here, but CiteCue still expects this site to add it. Reconnect so CiteCue stops reporting metadata it is not getting.', 'citecue-ai-auto-fix' );
+		switch ( $this->plugin->settings->seo_head_reconnect_reason() ) {
+			case 'disabled':
+				$message = __( 'enriched page metadata is switched off here, but CiteCue still expects this site to add it. Reconnect so CiteCue stops reporting metadata it is not getting.', 'citecue-ai-auto-fix' );
+				break;
+
+			case 'capabilities':
+				// The upgrade case, and the common one: the metadata setting has
+				// not moved, so saying anything about metadata would send an
+				// administrator looking for a fault that is not there.
+				$message = __( 'this version can place CiteCue page enhancements — the facts-and-FAQ sections you approve — on your pages, but CiteCue does not know that yet. Until you reconnect, it will hold on to every enhancement you approve instead of sending it here.', 'citecue-ai-auto-fix' );
+				break;
+
+			default:
+				$message = __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' );
+				break;
+		}
 		?>
 		<div class="notice notice-warning">
 			<p>
@@ -450,15 +462,28 @@ class Citecue_Admin {
 			if ( ! is_array( $project ) || empty( $project['publicKey'] ) ) {
 				continue;
 			}
-			$clean[] = array(
+			$entry = array(
 				'publicKey'    => sanitize_text_field( (string) $project['publicKey'] ),
 				'domain'       => sanitize_text_field( (string) ( isset( $project['domain'] ) ? $project['domain'] : '' ) ),
 				'enabled'      => ! empty( $project['enabled'] ),
 				'serveLlmsTxt' => ! empty( $project['serveLlmsTxt'] ),
 			);
+
+			// Copied across only when it was actually sent. Defaulting it to
+			// false would make a CiteCue that predates the field look like one
+			// withdrawing consent, and switch pushes off on every site at once.
+			if ( array_key_exists( 'contentPush', $project ) ) {
+				$entry['contentPush'] = ! empty( $project['contentPush'] );
+			}
+
+			$clean[] = $entry;
 		}
 		update_option( 'citecue_projects_cache', $clean, false );
 		update_option( 'citecue_last_config_at', time(), false );
+
+		// The same reconcile the daily sync runs, off the list already in hand
+		// rather than a second request.
+		$this->plugin->connect->reconcile_content_push( $clean );
 
 		// Auto-select by host when no project is chosen yet.
 		$settings = $this->plugin->settings;
@@ -654,6 +679,7 @@ class Citecue_Admin {
 							</label>
 							<p class="description">
 								<?php esc_html_e( 'Only fills gaps. Any tag your theme, WordPress or your SEO plugin already outputs is left exactly as it is — CiteCue never emits a second title or canonical.', 'citecue-ai-auto-fix' ); ?>
+								<?php esc_html_e( 'This also places page enhancements: where you have approved one in CiteCue, a short facts-and-FAQ section is added to the end of that page. It is the only thing here your visitors can see.', 'citecue-ai-auto-fix' ); ?>
 								<?php
 								$seo_plugin = self::detected_seo_plugin();
 								if ( '' !== $seo_plugin ) {
@@ -697,6 +723,18 @@ class Citecue_Admin {
 								<?php esc_html_e( 'Enable the signed content endpoint.', 'citecue-ai-auto-fix' ); ?>
 							</label>
 							<p class="description"><code><?php echo esc_html( rest_url( 'citecue/v1/content' ) ); ?></code></p>
+							<?php $revoked_at = (int) $settings->get( 'content_push_revoked_at' ); ?>
+							<?php if ( $revoked_at > 0 ) : ?>
+								<p class="description" style="color:#996800;">
+									<?php
+									printf(
+										/* translators: %s: human-readable date. */
+										esc_html__( 'Switched off automatically on %s: CiteCue no longer holds a signing secret for this site, so it cannot send anything here. Reconnect and tick “allow content pushes” to restore it.', 'citecue-ai-auto-fix' ),
+										esc_html( date_i18n( get_option( 'date_format' ), $revoked_at ) )
+									);
+									?>
+								</p>
+							<?php endif; ?>
 						</td>
 					</tr>
 					<tr>
@@ -880,11 +918,24 @@ class Citecue_Admin {
 					<td>
 						<?php if ( ! $settings->get( 'seo_head_enabled' ) ) : ?>
 							<?php esc_html_e( 'Off', 'citecue-ai-auto-fix' ); ?>
-						<?php elseif ( $settings->needs_seo_head_reconnect() ) : ?>
+						<?php elseif ( in_array( $settings->seo_head_reconnect_reason(), array( 'enabled', 'disabled' ), true ) ) : ?>
 							<span style="color:#996800;">&#8212;</span>
 							<?php esc_html_e( 'Enriched here, but CiteCue has not been told yet — reconnect to update it.', 'citecue-ai-auto-fix' ); ?>
 						<?php else : ?>
 							<?php esc_html_e( 'Enriched on live pages (gaps only)', 'citecue-ai-auto-fix' ); ?>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'Page enhancements', 'citecue-ai-auto-fix' ); ?></td>
+					<td>
+						<?php if ( ! $settings->get( 'seo_head_enabled' ) ) : ?>
+							<?php esc_html_e( 'Off — they arrive with page metadata, which is switched off above.', 'citecue-ai-auto-fix' ); ?>
+						<?php elseif ( '' !== $settings->seo_head_reconnect_reason() ) : ?>
+							<span style="color:#996800;">&#8212;</span>
+							<?php esc_html_e( 'Ready here, but CiteCue has not been told yet — reconnect to update it.', 'citecue-ai-auto-fix' ); ?>
+						<?php else : ?>
+							<?php esc_html_e( 'Placed on the pages you have approved', 'citecue-ai-auto-fix' ); ?>
 						<?php endif; ?>
 					</td>
 				</tr>

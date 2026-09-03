@@ -14,6 +14,9 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 
 	const BLOCK = '<meta data-citecue="og" property="og:title" content="Acme" />';
 
+	/** A page-enhancement block, in the shape CiteCue composes them. */
+	const BODY_BLOCK = '<section data-citecue="page-enhancement"><h2>About Acme</h2><details><summary>What is Acme?</summary><p>A company.</p></details></section>';
+
 	/**
 	 * A JSON body of the shape the delivery endpoint returns.
 	 *
@@ -681,6 +684,302 @@ class Test_Citecue_Seo_Head_Delivery extends Citecue_Test_Case {
 
 		$this->assertStringContainsString( 'og:title', $injector->enhance( $this->document() ) );
 		$this->assertSame( $this->document(), $injector->enhance( $this->document() ) );
+	}
+
+	/**
+	 * The page-enhancement block lands immediately before `</body>`, verbatim.
+	 *
+	 * Verbatim is the assertion that matters. The block is sanitized on
+	 * CiteCue's side and carries real markup — a `<section>`, `<details>`,
+	 * headings — so anything that escaped it would print tags as visible text
+	 * on the customer's page, and anything that ran it through `wpautop` or the
+	 * content filters would let a shortcode quoted inside an FAQ answer
+	 * execute.
+	 *
+	 * @return void
+	 */
+	public function test_the_body_block_is_injected_before_the_closing_body_tag() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK, self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$delivered = $injector->enhance( $this->document() );
+
+		$this->assertStringContainsString( self::BODY_BLOCK, $delivered, 'The block must be placed exactly as it arrived.' );
+		$this->assertMatchesRegularExpression(
+			'#' . preg_quote( self::BODY_BLOCK, '#' ) . '\s*</body>#',
+			$delivered,
+			'The block belongs immediately before the closing body tag.'
+		);
+	}
+
+	/**
+	 * Both halves of one response land in one render, in their own places.
+	 *
+	 * @return void
+	 */
+	public function test_head_and_body_are_injected_together() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK, self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$delivered = $injector->enhance( $this->document() );
+		$head      = substr( $delivered, 0, (int) stripos( $delivered, '</head>' ) );
+
+		$this->assertStringContainsString( 'og:title', $head );
+		$this->assertStringNotContainsString( self::BODY_BLOCK, $head, 'The body block must not be placed in the head.' );
+		$this->assertStringContainsString( self::BODY_BLOCK, $delivered );
+	}
+
+	/**
+	 * A page that already carries the marker is left alone. On a site fronted
+	 * by CiteCue's Worker — or one whose post content already holds the
+	 * section — the block is in the document before this plugin ever sees it,
+	 * and a second copy is the one failure a reader actually notices.
+	 *
+	 * @return void
+	 */
+	public function test_a_page_that_already_carries_the_marker_is_not_injected_into() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$already   = $this->document( '', '<p>Hello</p>' . self::BODY_BLOCK );
+		$delivered = $injector->enhance( $already );
+
+		$this->assertSame( $already, $delivered );
+		$this->assertSame( 1, substr_count( $delivered, 'page-enhancement' ), 'Exactly one section, however it got there.' );
+	}
+
+	/**
+	 * The marker is recognised however it was quoted, so a single-quoted or
+	 * loosely-spaced copy of the section still suppresses a second one.
+	 *
+	 * @return void
+	 */
+	public function test_the_marker_is_recognised_whatever_its_quoting() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$already   = $this->document( '', "<section data-citecue = 'page-enhancement'>Theirs</section>" );
+		$delivered = $injector->enhance( $already );
+
+		$this->assertSame( $already, $delivered );
+	}
+
+	/**
+	 * A page that QUOTES the marker in a code sample has not been given a
+	 * block, and must still get one. This is the lesson enhance() already
+	 * records about the head, applied to the body: escaped markup in page
+	 * content is content, not markup, and a substring search cannot tell the
+	 * difference — it would withhold that page's enhancement forever.
+	 *
+	 * @return void
+	 */
+	public function test_a_page_quoting_the_marker_still_gets_its_block() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$sample    = '<p>Add <code>&lt;section data-citecue="page-enhancement"&gt;</code> to your template.</p>';
+		$delivered = $injector->enhance( $this->document( '', $sample ) );
+
+		$this->assertStringContainsString( self::BODY_BLOCK, $delivered );
+	}
+
+	/**
+	 * The FAQ payload CiteCue composes INSIDE the block carries
+	 * `data-citecue="page-enhancement-faq"`. It is a sibling value, not the
+	 * section marker, so on its own it must not read as a block already placed.
+	 *
+	 * @return void
+	 */
+	public function test_the_faq_sibling_value_is_not_the_section_marker() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$faq_only  = '<script type="application/ld+json" data-citecue="page-enhancement-faq">{}</script>';
+		$delivered = $injector->enhance( $this->document( '', $faq_only ) );
+
+		$this->assertStringContainsString( self::BODY_BLOCK, $delivered );
+	}
+
+	/**
+	 * A block over the wire cap is dropped rather than placed. The endpoint
+	 * refuses to send one this large, so a block that arrives anyway is a
+	 * generation bug — and the cap is what keeps that bug costing one page
+	 * rather than every page the cache has warmed.
+	 *
+	 * @return void
+	 */
+	public function test_an_oversized_body_block_is_not_injected() {
+		$this->configure_delivery();
+		$url  = $this->fake_visitor_request();
+		$huge = '<section data-citecue="page-enhancement"><p>'
+			. str_repeat( 'x', Citecue_Seo_Head::MAX_BLOCK_BYTES )
+			. '</p></section>';
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK, $huge );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$delivered = $injector->enhance( $this->document() );
+
+		$this->assertStringNotContainsString( 'page-enhancement', $delivered );
+		// The head half is unaffected: the two are independent, and one
+		// oversized block is no reason to withhold the page's metadata.
+		$this->assertStringContainsString( 'og:title', $delivered );
+	}
+
+	/**
+	 * The document's own `</body>` is the last one. A page that quotes markup
+	 * in a code sample carries an earlier one, and splicing there would put the
+	 * section inside the sample.
+	 *
+	 * @return void
+	 */
+	public function test_the_block_goes_before_the_last_closing_body_tag() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, '', self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$sample    = '<pre>&lt;body&gt;…&lt;/body&gt;</pre><code></body></code>';
+		$delivered = $injector->enhance( $this->document( '', $sample ) );
+
+		$this->assertMatchesRegularExpression(
+			'#' . preg_quote( self::BODY_BLOCK, '#' ) . '\s*</body></html>$#',
+			$delivered,
+			'The section belongs before the document\'s own closing tag, not the quoted one.'
+		);
+	}
+
+	/**
+	 * A response with no closing body tag is returned unchanged — and its head
+	 * half still lands. The two are independent.
+	 *
+	 * @return void
+	 */
+	public function test_a_document_without_a_body_close_keeps_its_head_injection() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK, self::BODY_BLOCK );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$delivered = $injector->enhance( '<html><head></head><p>fragment</p>' );
+
+		$this->assertStringNotContainsString( 'page-enhancement', $delivered );
+		$this->assertStringContainsString( 'og:title', $delivered );
+	}
+
+	/**
+	 * A 200 whose `head` is empty but whose `body` is not is a complete answer,
+	 * not a broken one: the endpoint sends 204 when it has neither half, so a
+	 * page whose enhancement block is all it has must be cached and served.
+	 *
+	 * @return void
+	 */
+	public function test_a_body_only_response_is_cached_and_injected() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->http->queue(
+			'seo_head',
+			200,
+			wp_json_encode(
+				array(
+					'head' => '',
+					'body' => self::BODY_BLOCK,
+				)
+			)
+		);
+
+		$this->assertSame( 'fresh', $this->seo_head()->refresh( $url ) );
+
+		$injector = $this->seo_head();
+		$this->arrange_capture( $injector );
+
+		$this->assertStringContainsString( self::BODY_BLOCK, $injector->enhance( $this->document() ) );
+	}
+
+	/**
+	 * A 200 carrying neither half is still the payload we do not understand,
+	 * and is recorded as a miss rather than cached as an empty block.
+	 *
+	 * @return void
+	 */
+	public function test_a_response_with_neither_half_is_a_miss() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+		$this->http->queue(
+			'seo_head',
+			200,
+			wp_json_encode(
+				array(
+					'head' => '',
+					'body' => '',
+				)
+			)
+		);
+
+		$this->assertSame( 'empty', $this->seo_head()->refresh( $url ) );
+		$this->assertNull( $this->plugin->cache->get_seo_head( $url ) );
+	}
+
+	/**
+	 * An entry written before the body half existed still reads. Those outlive
+	 * the upgrade by up to the cache TTL, and discarding them would throw away
+	 * a day of warm cache on every site the moment it updates.
+	 *
+	 * @return void
+	 */
+	public function test_a_cache_entry_from_before_the_body_half_still_reads() {
+		$this->configure_delivery();
+		$url = $this->fake_visitor_request();
+
+		// Write through the cache first, so the key's salt exists and is
+		// discoverable, then overwrite the entry with exactly what the previous
+		// version stored: no `body` key at all.
+		$this->plugin->cache->set_seo_head( $url, self::BLOCK );
+		$key = 'citecue_sh_' . md5( get_option( 'citecue_cache_salt' ) . '|' . Citecue_Cache::normalize_url( $url ) );
+		$this->assertNotFalse( get_transient( $key ), 'The key derivation must match the cache\'s own.' );
+
+		set_transient(
+			$key,
+			array(
+				'block'     => self::BLOCK,
+				'cached_at' => time(),
+			),
+			HOUR_IN_SECONDS
+		);
+
+		$cached = $this->plugin->cache->get_seo_head( $url );
+
+		$this->assertIsArray( $cached );
+		$this->assertSame( '', $cached['body'] );
 	}
 
 	/**

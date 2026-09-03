@@ -78,7 +78,7 @@ if [ -n "$stray_root" ]; then
 	exit 1
 fi
 
-stray_dev=$(printf '%s\n' "$entries" | grep -E "^$SLUG/(tests/|bin/|docs/|\.github/|composer\.|phpunit|\.phpcs|README\.md)" || true)
+stray_dev=$(printf '%s\n' "$entries" | grep -E "^$SLUG/(tests/|bin/|docs/|assets-src/|\.wordpress-org/|\.github/|composer\.|phpunit|\.phpcs|README\.md)" || true)
 if [ -n "$stray_dev" ]; then
 	echo "error: development files leaked into the archive:" >&2
 	printf '%s\n' "$stray_dev" >&2

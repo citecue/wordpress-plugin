@@ -220,6 +220,404 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The block half of the delivery channel is gated on `body_blocks`, and
+	 * CiteCue reads its absence as "cannot place a block" — so a plugin that
+	 * injects one and never says so is sent `body: ''` forever.
+	 *
+	 * Declared together with the injection that honours it, deliberately: the
+	 * capability is what makes CiteCue start sending real block markup, so a
+	 * release that announced it without placing it would put a block on a
+	 * customer's live page that nothing renders.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_declares_the_body_block_capability() {
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertTrue( $sent['body_blocks'] );
+		$this->assertTrue( $sent['seo_head_baseline'] );
+	}
+
+	/**
+	 * All three delivery capabilities ride the one setting that governs the
+	 * response they arrive in: a site that fetches nothing can place nothing,
+	 * and claiming otherwise is the over-claim the capability exists to stop.
+	 *
+	 * @return void
+	 */
+	public function test_switching_injection_off_withdraws_every_delivery_capability() {
+		$this->plugin->settings->update( array( 'seo_head_enabled' => false ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertFalse( $sent['seo_head'] );
+		$this->assertFalse( $sent['body_blocks'] );
+		$this->assertFalse( $sent['seo_head_baseline'] );
+		$this->assertSame( array(), $this->plugin->settings->get( 'capabilities_reported' ) );
+	}
+
+	/**
+	 * An install connected by an EARLIER build declared `seo_head` and nothing
+	 * else, so its `seo_head_reported` agrees and the old check stays quiet —
+	 * while CiteCue still believes the site cannot place a block and withholds
+	 * every one. Without this, the feature would reach nobody who was already
+	 * a customer, and nothing would say why.
+	 *
+	 * @return void
+	 */
+	public function test_a_connection_predating_the_block_capability_asks_for_a_reconnect() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'capabilities_reported' => null,
+			)
+		);
+
+		$this->assertTrue( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * A claim records the set it actually sent, so the same site stops being
+	 * asked the moment it has reconnected.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_records_the_declared_capability_set() {
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$this->assertSame(
+			array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			$this->plugin->settings->get( 'capabilities_reported' )
+		);
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * Installing WooCommerce after connecting leaves stale information on the
+	 * key, not a broken feature — it gates nothing CiteCue sends — so it must
+	 * not raise a prompt that asks the customer to fix something that is not
+	 * wrong.
+	 *
+	 * @return void
+	 */
+	public function test_a_presentational_capability_alone_never_asks_for_a_reconnect() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			)
+		);
+
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * Disconnecting forgets the set: the next connection mints a new key with
+	 * its own capabilities, and what the old one recorded says nothing about it.
+	 *
+	 * @return void
+	 */
+	public function test_disconnecting_forgets_the_declared_capability_set() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'capabilities_reported' => array( 'seo_head' ) ) );
+
+		$this->connect->disconnect();
+
+		$this->assertNull( $this->plugin->settings->get( 'capabilities_reported' ) );
+	}
+
+	/**
+	 * The prompt has to say what actually went stale. A site upgrading into a
+	 * new capability has not touched its metadata setting, and telling it that
+	 * its metadata is not reaching CiteCue sends an administrator looking for a
+	 * fault that is not there.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_capability_set_is_not_reported_as_a_metadata_problem() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'capabilities_reported' => array( 'seo_head' ),
+			)
+		);
+
+		$this->assertSame( 'capabilities', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * A moved metadata setting still reports itself as one, in both directions.
+	 *
+	 * @return void
+	 */
+	public function test_a_moved_metadata_setting_reports_itself() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => false,
+				'seo_head_enabled'      => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			)
+		);
+		$this->assertSame( 'enabled', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported' => true,
+				'seo_head_enabled'  => false,
+			)
+		);
+		$this->assertSame( 'disabled', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * Consent is never a reason to reconnect for this. Content pushes gate the
+	 * ingest endpoint and nothing on the delivery path — page enhancements
+	 * arrive through the same authenticated read as the metadata — so a site
+	 * that has not allowed pushes is fully configured for them, and prompting
+	 * it would be asking an administrator to grant write access to their site
+	 * for a feature that does not use it.
+	 *
+	 * @return void
+	 */
+	public function test_withheld_content_push_consent_is_never_a_reconnect_reason() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+				'ingest_enabled'        => false,
+				'ingest_secret'         => '',
+			)
+		);
+
+		$this->assertSame( '', $this->plugin->settings->seo_head_reconnect_reason() );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * A project list that says CiteCue holds no signing secret for this site
+	 * closes the switch here, so the screen stops promising a channel that
+	 * cannot deliver.
+	 *
+	 * @return void
+	 */
+	public function test_withdrawn_consent_switches_pushes_off() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$revoked = $this->plugin->connect->reconcile_content_push( $this->projects( array( 'contentPush' => false ) ) );
+
+		$this->assertTrue( $revoked );
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+		$this->assertGreaterThan( 0, (int) $this->plugin->settings->get( 'content_push_revoked_at' ) );
+	}
+
+	/**
+	 * A CiteCue that still holds the secret changes nothing.
+	 *
+	 * @return void
+	 */
+	public function test_held_consent_leaves_pushes_on() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$this->assertFalse( $this->plugin->connect->reconcile_content_push( $this->projects( array( 'contentPush' => true ) ) ) );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * The switch is never turned ON from a remote read, even though CiteCue's
+	 * consent gate means `contentPush: true` now implies the customer did once
+	 * tick the box. That makes the grant reading tempting and still wrong: the
+	 * field reports what CiteCue holds at this instant, while the switch is the
+	 * administrator's standing decision about their own site — and they may
+	 * have closed it here on purpose since. Re-opening it from a remote read
+	 * would hand write access back to a site whose owner had refused it.
+	 *
+	 * @return void
+	 */
+	public function test_a_remote_read_never_switches_pushes_on() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => false ) );
+
+		$this->plugin->connect->reconcile_content_push( $this->projects( array( 'contentPush' => true ) ) );
+
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A response from a CiteCue that predates the field must not read as a
+	 * withdrawal. Defaulting the absent key to false would switch pushes off on
+	 * every site at once, which is the one way this reconcile could do real
+	 * damage.
+	 *
+	 * This test looks redundant against the current API and is not.
+	 * `contentPush` is a required boolean on every project entry, so a reader
+	 * checking the schema will find no way to reach the case at all. The case
+	 * it covers is the deployment WITHOUT the field — a rollback, a staging
+	 * origin on an older build, a self-hosted app behind on releases — which no
+	 * schema describes and which arrives without warning.
+	 *
+	 * @return void
+	 */
+	public function test_an_absent_field_is_not_a_withdrawal() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$this->assertFalse( $this->plugin->connect->reconcile_content_push( $this->projects() ) );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A list this site's own project is not in says nothing about this site,
+	 * and acting on nothing would revoke a working connection.
+	 *
+	 * @return void
+	 */
+	public function test_a_list_without_this_project_changes_nothing() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$others = array(
+			array(
+				'publicKey'   => 'pk_somebody_else',
+				'domain'      => 'other.example',
+				'contentPush' => false,
+			),
+		);
+
+		$this->assertFalse( $this->plugin->connect->reconcile_content_push( $others ) );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A bad afternoon on the network is not a withdrawal of consent.
+	 *
+	 * @return void
+	 */
+	public function test_a_transport_failure_never_switches_pushes_off() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+		$this->http->queue_error( 'config' );
+
+		$this->assertFalse( $this->plugin->connect->refresh_content_push() );
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * A site with pushes switched off has nothing to reconcile and spends no
+	 * request doing it — which is most sites, since off is the default.
+	 *
+	 * @return void
+	 */
+	public function test_a_site_without_pushes_spends_no_request() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => false ) );
+
+		$this->assertFalse( $this->plugin->connect->refresh_content_push() );
+		$this->assertSame( 0, $this->http->count() );
+	}
+
+	/**
+	 * The daily sync is where a withdrawal made at CiteCue is noticed, so a
+	 * stale switch corrects itself within a day instead of waiting for somebody
+	 * to press Test connection.
+	 *
+	 * @return void
+	 */
+	public function test_the_daily_sync_reconciles_consent() {
+		$this->configure_delivery();
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+		$this->http->queue(
+			'crawlers',
+			200,
+			wp_json_encode(
+				array(
+					'version' => 1,
+					'tokens'  => array( 'GPTBot' ),
+				)
+			)
+		);
+		$this->http->queue( 'config', 200, wp_json_encode( array( 'projects' => $this->projects( array( 'contentPush' => false ) ) ) ) );
+
+		$this->plugin->daily_sync();
+
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * The plugin's OWN claim is the one response where an omitted `ingest` is a
+	 * definite "the customer did not tick the box" rather than "not mentioned":
+	 * it sent a secret and asked, and the contract omits the flag rather than
+	 * sending false. Leaving the switch alone would keep a site reading
+	 * "Accepted" after a reconnect that withdrew consent.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_that_omits_consent_switches_pushes_off() {
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+	}
+
+	/**
+	 * And a claim that grants consent turns it back on, clearing the
+	 * explanation left by any earlier withdrawal.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_that_grants_consent_switches_pushes_on() {
+		$this->plugin->settings->update(
+			array(
+				'ingest_enabled'          => false,
+				'content_push_revoked_at' => time() - DAY_IN_SECONDS,
+			)
+		);
+		$this->http->queue( 'connect', 200, $this->claim_payload( array( 'ingest' => true ) ) );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$this->assertTrue( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+		$this->assertSame( 0, (int) $this->plugin->settings->get( 'content_push_revoked_at' ) );
+	}
+
+	/**
+	 * A project list carrying this site's own key, for the consent reconcile.
+	 *
+	 * @param array $extra Extra keys on the entry (omit contentPush entirely to
+	 *                     stand in for a CiteCue that predates the field).
+	 * @return array
+	 */
+	private function projects( array $extra = array() ) {
+		return array(
+			array_merge(
+				array(
+					'publicKey' => (string) $this->plugin->settings->get( 'public_key' ),
+					'domain'    => 'example.org',
+					'enabled'   => true,
+				),
+				$extra
+			),
+		);
+	}
+
+	/**
 	 * An install that connected before this release injects enriched metadata
 	 * while CiteCue still reports the channel as unable to. That disagreement
 	 * is exactly what the admin prompt exists to catch.

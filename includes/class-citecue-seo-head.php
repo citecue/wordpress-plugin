@@ -1,13 +1,18 @@
 <?php
 /**
- * Injects CiteCue's enriched SEO head block into ordinary page loads.
+ * Injects CiteCue's enriched SEO head block, and the page-enhancement block
+ * that belongs in the page body, into ordinary page loads.
  *
  * This is the human-facing half of the delivery channel, and the opposite of
  * Citecue_Proxy in every way that matters. The proxy replaces the whole
  * document, for detected AI crawlers only. This one adds a handful of
  * head-only tags — title, meta description, OpenGraph, canonical, JSON-LD —
- * to the page a browser (or Googlebot) already sees, leaving the visible page
- * untouched. CiteCue only serves a block for `enriched` pages in `all`
+ * to the page a browser (or Googlebot) already sees. It also places one
+ * visible thing: the page-enhancement block, a collapsed facts-and-FAQ section
+ * CiteCue composes for a page the customer already has, immediately before
+ * `</body>`. That block is the only markup this class puts where a reader can
+ * see it, and it arrives already sanitized and size-capped (see
+ * self::inject_body()). CiteCue only serves a block for `enriched` pages in `all`
  * audience mode, which is what keeps the two apart: enriched markup is
  * content-parity and additive, so adding it is not cloaking, whereas serving a
  * rewritten document to a human would be.
@@ -83,6 +88,44 @@ class Citecue_Seo_Head {
 	 * capture at all.
 	 */
 	const CAPTURE_PRIORITY = PHP_INT_MAX;
+
+	/**
+	 * The attribute pair CiteCue marks a page-enhancement section with, matched
+	 * loosely enough to recognise the section however it was quoted.
+	 *
+	 * This is a "somebody already placed it" check, not a parse: on a site whose
+	 * origin is fronted by CiteCue's Worker, or whose post content already
+	 * carries the section, the block is in the document before this plugin sees
+	 * it — and a second copy is the one failure mode a visitor actually notices.
+	 *
+	 * Scoped to a real opening tag, and to the whole attribute value, for the
+	 * reason this class already learned once about the head (see enhance()): a
+	 * page that quotes markup in a code sample contains whatever it quotes. A
+	 * bare substring search reads `&lt;section data-citecue="page-enhancement"&gt;`
+	 * in a documentation page as a block already placed, and silently withholds
+	 * that page's enhancement forever. Requiring `<tag …` means escaped markup
+	 * cannot match, because the escaped form has no `<`.
+	 *
+	 * The trailing boundary matters for a live value, not a hypothetical one:
+	 * CiteCue composes the FAQ payload inside the block as
+	 * `data-citecue="page-enhancement-faq"`, so a prefix match would treat that
+	 * sibling as the section marker. The section is what delimits the region
+	 * CiteCue owns, and only the section may answer this question.
+	 */
+	const BLOCK_MARKER_PATTERN = '#<[a-z][^>]*\sdata-citecue\s*=\s*(["\']?)page-enhancement\1[\s/>]#i';
+
+	/**
+	 * Largest page-enhancement block that may be injected, in bytes. Mirrors
+	 * the delivery API's own MAX_BLOCK_BYTES, which already refuses to send a
+	 * larger one.
+	 *
+	 * Enforcing it again here is not distrust of the endpoint: a composed block
+	 * is a handful of facts and FAQ entries and cannot legitimately approach
+	 * 32 KB, so a block that does is a generation bug — and this is the
+	 * difference between that bug costing one page and it costing every page
+	 * the cache has warmed.
+	 */
+	const MAX_BLOCK_BYTES = 32768;
 
 	/**
 	 * `<link>` relations that may be injected, and `<meta>` values are escaped
@@ -216,22 +259,26 @@ class Citecue_Seo_Head {
 	}
 
 	/**
-	 * The rendered document with CiteCue's tags added to its head — the one
-	 * place the injection happens, shared by both mechanisms above.
+	 * The rendered document with CiteCue's markup added to it — the one place
+	 * the injection happens, shared by both mechanisms above.
+	 *
+	 * Two halves land here, in two places, under two different rules: the head
+	 * tags immediately before `</head>`, and the page-enhancement block
+	 * immediately before the last `</body>`.
 	 *
 	 * Everything before `</head>` is what the slot check reads, and the tags go
-	 * immediately before it. Scoping both to the head is not tidiness: an
+	 * immediately before it. Scoping the check to the head is not tidiness: an
 	 * inline SVG in the body carries a `<title>`, `<meta itemprop>` is legal in
 	 * body content, and a page that quotes markup in a code sample contains
 	 * whatever it quotes — so a document-wide scan would read slots as occupied
 	 * that no browser or crawler ever reads as page metadata, and CiteCue would
 	 * silently stop filling them.
 	 *
-	 * A response with no `</head>` is returned exactly as it arrived: a JSON or
-	 * CSV export served from a page URL, a fragment, a document another plugin
-	 * replaced wholesale. There is no head to fill gaps in, and guessing where
-	 * one would have gone is how a plugin corrupts a response it did not
-	 * understand.
+	 * A response missing either close is returned unchanged at that half: a
+	 * JSON or CSV export served from a page URL, a fragment, a document another
+	 * plugin replaced wholesale. There is nothing to fill gaps in, and guessing
+	 * where the close would have gone is how a plugin corrupts a response it
+	 * did not understand.
 	 *
 	 * @param string $html Rendered document.
 	 * @return string
@@ -249,12 +296,34 @@ class Citecue_Seo_Head {
 			return $html;
 		}
 
+		// Independent halves, deliberately. A document can have a head and no
+		// body close (a fragment), or a body and a head another plugin already
+		// filled, and neither is a reason to withhold the other — they answer
+		// to different rules and land in different places.
+		$html = self::inject_head( $html, $decision['block'] );
+		$html = self::inject_body( $html, $decision['body'] );
+
+		return $html;
+	}
+
+	/**
+	 * The document with CiteCue's gap-filling tags spliced into its head.
+	 *
+	 * @param string $html  Rendered document.
+	 * @param string $block CiteCue head block.
+	 * @return string
+	 */
+	private static function inject_head( $html, $block ) {
+		if ( '' === $block ) {
+			return $html;
+		}
+
 		if ( ! preg_match( '#</head\s*>#i', $html, $match, PREG_OFFSET_CAPTURE ) ) {
 			return $html;
 		}
 
 		$at   = (int) $match[0][1];
-		$tags = self::merge( substr( $html, 0, $at ), $decision['block'] );
+		$tags = self::merge( substr( $html, 0, $at ), $block );
 
 		if ( ! $tags ) {
 			return $html;
@@ -269,11 +338,62 @@ class Citecue_Seo_Head {
 	}
 
 	/**
+	 * The document with CiteCue's page-enhancement block spliced in before its
+	 * closing `</body>`.
+	 *
+	 * The block is passed through as it arrived, and that is the contract
+	 * rather than an oversight: unlike the head tags — which are rebuilt from
+	 * parsed values because they are assembled from many small elements whose
+	 * shapes must be constrained — the body block is a single section
+	 * sanitized at composition on CiteCue's side and capped on the wire.
+	 * Re-escaping it would print its markup as visible text; running it through
+	 * `wpautop` or the content filters would let a shortcode inside a quoted
+	 * FAQ answer execute. So it is spliced verbatim, and the trust is placed
+	 * where it can be reasoned about: the size cap and the marker check below,
+	 * plus the fact that it only ever arrives over an authenticated request to
+	 * the site's own configured project.
+	 *
+	 * The LAST `</body>` is the document's own. A page that quotes markup in a
+	 * code sample contains an earlier one, and splicing at that would put the
+	 * section inside the sample.
+	 *
+	 * @param string $html Rendered document.
+	 * @param string $body CiteCue page-enhancement block.
+	 * @return string
+	 */
+	private static function inject_body( $html, $body ) {
+		if ( '' === $body ) {
+			return $html;
+		}
+
+		// strlen() is bytes, which is what the cap is stated in — the block is
+		// UTF-8 and a character count would under-count it by up to 4x.
+		if ( strlen( $body ) > self::MAX_BLOCK_BYTES ) {
+			return $html;
+		}
+
+		// Already placed — by the Worker in front of this site, or in the post
+		// content itself. Injecting now would show the customer two.
+		if ( preg_match( self::BLOCK_MARKER_PATTERN, $html ) ) {
+			return $html;
+		}
+
+		if ( ! preg_match_all( '#</body\s*>#i', $html, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $html;
+		}
+
+		$last = end( $matches[0] );
+		$at   = (int) $last[1];
+
+		return substr( $html, 0, $at ) . $body . "\n" . substr( $html, $at );
+	}
+
+	/**
 	 * Whether this request should be injected into, and with what — reading the
 	 * cache only, never the network. The testable counterpart of the capture,
 	 * mirroring the decide()/serve() split in Citecue_Proxy.
 	 *
-	 * @return array{inject:bool,block:string,reason:string}
+	 * @return array{inject:bool,block:string,body:string,reason:string}
 	 */
 	public function decide() {
 		$settings = $this->plugin->settings;
@@ -290,7 +410,11 @@ class Citecue_Seo_Head {
 		}
 
 		/**
-		 * Filters whether to inject CiteCue's SEO head into this page.
+		 * Filters whether to inject CiteCue's markup into this page.
+		 *
+		 * Governs BOTH halves — the head tags and the page-enhancement block —
+		 * because both arrive in the one response this decision fetches, and a
+		 * page somebody has excluded is excluded from all of it.
 		 *
 		 * @param bool   $should_inject Default true.
 		 * @param string $url           URL the block is looked up by.
@@ -303,7 +427,7 @@ class Citecue_Seo_Head {
 		$cached = $cache->get_seo_head( $url );
 
 		if ( $cached && $cache->is_fresh( $cached, self::FRESH_SECONDS ) ) {
-			return self::block( $cached['block'], 'cached' );
+			return self::block( $cached['block'], $cached['body'], 'cached' );
 		}
 
 		// CiteCue recently said it has nothing for this URL. Unlike the crawler
@@ -318,7 +442,7 @@ class Citecue_Seo_Head {
 		// Stale-while-revalidate: a day-old block is still this page's own
 		// metadata, and withholding it while the refresh runs would blank the
 		// tags on every page during a CiteCue outage.
-		return $cached ? self::block( $cached['block'], 'stale' ) : self::skip( 'no-cache' );
+		return $cached ? self::block( $cached['block'], $cached['body'], 'stale' ) : self::skip( 'no-cache' );
 	}
 
 	/**
@@ -356,15 +480,20 @@ class Citecue_Seo_Head {
 
 		switch ( $response['status'] ) {
 			case 200:
-				if ( '' === $response['head'] ) {
-					// A 200 carrying no block is a payload we do not understand.
-					// Treat it as "nothing to inject" rather than caching an
-					// empty string that would read as a valid block.
+				// Either half alone is a complete answer. The endpoint sends
+				// 204 when it has neither, so a 200 with an empty `head` is a
+				// page whose enhancement block is all there is to inject —
+				// testing `head` alone here would throw that block away and
+				// cache a miss over it.
+				if ( '' === $response['head'] && '' === $response['body'] ) {
+					// A 200 carrying nothing at all is a payload we do not
+					// understand. Treat it as "nothing to inject" rather than
+					// caching empty strings that would read as a valid block.
 					$cache->delete_seo_head( $url );
 					$cache->set_seo_head_miss( $url );
 					return 'empty';
 				}
-				$cache->set_seo_head( $url, $response['head'] );
+				$cache->set_seo_head( $url, $response['head'], $response['body'] );
 				return 'fresh';
 
 			case 204:
@@ -818,6 +947,7 @@ class Citecue_Seo_Head {
 		return array(
 			'inject' => false,
 			'block'  => '',
+			'body'   => '',
 			'reason' => $reason,
 		);
 	}
@@ -825,14 +955,23 @@ class Citecue_Seo_Head {
 	/**
 	 * An "inject this block" decision.
 	 *
+	 * `inject` is what arranges the capture, so it asks whether there is
+	 * anything at all to place — either half alone is reason enough to buffer,
+	 * and neither means the page streams untouched.
+	 *
 	 * @param string $block  CiteCue head block.
+	 * @param string $body   CiteCue page-enhancement block.
 	 * @param string $reason Where the block came from (diagnostic only).
-	 * @return array{inject:bool,block:string,reason:string}
+	 * @return array{inject:bool,block:string,body:string,reason:string}
 	 */
-	private static function block( $block, $reason ) {
+	private static function block( $block, $body, $reason ) {
+		$block = (string) $block;
+		$body  = (string) $body;
+
 		return array(
-			'inject' => true,
-			'block'  => (string) $block,
+			'inject' => ( '' !== $block || '' !== $body ),
+			'block'  => $block,
+			'body'   => $body,
 			'reason' => $reason,
 		);
 	}

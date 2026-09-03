@@ -2,6 +2,8 @@
 # zip. `bin/build-plugin-zip.sh` builds with `git archive`, which honours these,
 # so this file is the single list of what is developer-only.
 /.gitattributes     export-ignore
+/.wordpress-org     export-ignore
+/assets-src         export-ignore
 /.github            export-ignore
 /.gitignore         export-ignore
 /.phpcs.xml.dist    export-ignore
