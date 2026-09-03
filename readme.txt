@@ -17,7 +17,6 @@ CiteCue AI Auto-Fix is the WordPress end of CiteCue. It decides, per request, wh
 * **Per-request delivery to AI crawlers** — when GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User or any other agent in the crawler registry requests a page, the plugin returns the CiteCue-optimized version of that URL. Human visitors always see your normal site, and optimized responses are never cached for regular traffic. Any miss, timeout or outage passes straight through to the normal page.
 * **Gap-filling page metadata** — adds CiteCue's title, meta description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them on the page a human sees. It fills gaps only: it reads what your theme, WordPress and your SEO plugin actually printed into `<head>` and adds only what none of them emitted, so there is never a second title or canonical.
 * **Page enhancements** — where you have approved one in CiteCue, adds a short facts-and-FAQ section to the end of a page you already have, built from your own answered facts and grounded FAQ entries rather than generated. It is placed only if the page does not already carry one, and it is the only thing this plugin adds that your visitors can see.
-* **llms.txt** — serves the llms.txt file CiteCue maintains for your brand at your site root, refreshed from CiteCue rather than regenerated here.
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
 * **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
 
@@ -25,7 +24,7 @@ This plugin requires a CiteCue account (citecue.com) and does nothing until you 
 
 = What the plugin actually does =
 
-llms.txt is one of the four features above, and CiteCue writes that file — the plugin serves it. The rest of the code is about what happens on a live request:
+Everything above happens on a live request, and that is where the design decisions are:
 
 * **It serves a different representation per requester, safely.** Crawler matching runs against a registry that refreshes daily, so an agent launched last week is recognised without a plugin update. A logged-in user, a cart URL, a WooCommerce endpoint or a cart-modifying link is never intercepted. A circuit breaker, a per-minute lookup budget, negative caching and a stale-while-revalidate cache mean an outage at CiteCue costs a passthrough, never a broken page or a slow one.
 * **It composes with your SEO plugin rather than replacing it.** The metadata layer detects what was actually printed into `<head>` rather than looking for particular plugins, so it behaves correctly beside Yoast, Rank Math, a plugin nobody has heard of, or none at all. Every tag it adds carries a `data-citecue` attribute, so View Source tells you exactly which ones came from CiteCue.

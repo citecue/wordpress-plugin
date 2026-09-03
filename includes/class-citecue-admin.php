@@ -588,7 +588,7 @@ class Citecue_Admin {
 		$host     = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
 		?>
 		<p style="max-width:720px;">
-			<?php esc_html_e( 'Serves CiteCue-optimized versions of your pages to AI bots and crawlers, publishes your llms.txt, and can receive new brand-building content from CiteCue as draft posts.', 'citecue-ai-auto-fix' ); ?>
+			<?php esc_html_e( 'Serves CiteCue-optimized versions of your pages to AI bots and crawlers, adds CiteCue’s enriched metadata to your live pages, and can receive new brand-building content from CiteCue as draft posts.', 'citecue-ai-auto-fix' ); ?>
 		</p>
 
 		<div class="card" style="max-width:720px;">
