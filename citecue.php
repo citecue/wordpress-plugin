@@ -3,11 +3,11 @@
  * Plugin Name:       CiteCue AI Auto-Fix
  * Plugin URI:        https://github.com/citecue/wordpress-plugin
  * Description:       Serves CiteCue-optimized versions of your pages to AI bots and crawlers, adds CiteCue's enriched SEO metadata to your live pages, and lets CiteCue push brand-building draft content into WordPress.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CiteCue
- * Author URI:        https://app.citecue.com
+ * Author URI:        https://citecue.com
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       citecue-ai-auto-fix
@@ -138,7 +138,7 @@ if ( defined( 'CITECUE_VERSION' ) ) {
 	return;
 }
 
-define( 'CITECUE_VERSION', '1.2.0' );
+define( 'CITECUE_VERSION', '1.2.1' );
 define( 'CITECUE_PLUGIN_FILE', __FILE__ );
 define( 'CITECUE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 

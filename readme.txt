@@ -4,7 +4,7 @@ Tags: ai, ai-crawlers, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -12,7 +12,7 @@ AEO for WordPress: answers AI crawlers with a CiteCue-optimized version of the p
 
 == Description ==
 
-CiteCue AI Auto-Fix is the WordPress end of CiteCue, an answer engine optimization (AEO) platform. It decides, per request, which version of a page WordPress returns — the optimized one to a recognised AI crawler, your normal page to everyone else — and it can do that only from inside WordPress, before the theme renders.
+CiteCue AI Auto-Fix is the WordPress end of [CiteCue](https://citecue.com), an answer engine optimization (AEO) platform. It decides, per request, which version of a page WordPress returns — the optimized one to a recognised AI crawler, your normal page to everyone else — and it can do that only from inside WordPress, before the theme renders.
 
 * **Per-request delivery to AI crawlers** — when GPTBot, ClaudeBot, PerplexityBot, ChatGPT-User or any other agent in the crawler registry requests a page, the plugin returns the CiteCue-optimized version of that URL. Human visitors always see your normal site, and optimized responses are never cached for regular traffic. Any miss, timeout or outage passes straight through to the normal page.
 * **Gap-filling page metadata** — adds CiteCue's title, meta description, OpenGraph, canonical and structured-data tags to your live pages, so search engines and AI answer engines see them on the page a human sees. It fills gaps only: it reads what your theme, WordPress and your SEO plugin actually printed into `<head>` and adds only what none of them emitted, so there is never a second title or canonical.
@@ -22,7 +22,7 @@ CiteCue AI Auto-Fix is the WordPress end of CiteCue, an answer engine optimizati
 * **Content from CiteCue** — a signed endpoint through which CiteCue can push new brand-building content (content briefs, FAQ packs, gap-filling pages) into WordPress as drafts for your review.
 * **WooCommerce-aware** — cart, checkout, account pages and cart-modifying links are never intercepted, while product and shop pages are served optimized. Pushed content can also create or enrich WooCommerce products (draft by default, matched by SKU with explicit consent).
 
-This plugin requires a CiteCue account (citecue.com) and does nothing until you connect one. See "External services" below for exactly what is sent where.
+This plugin requires a CiteCue account — [citecue.com](https://citecue.com) — and does nothing until you connect one. See "External services" below for exactly what is sent where.
 
 = What the plugin actually does =
 
@@ -34,7 +34,11 @@ Everything above happens on a live request, and that is where the design decisio
 * **It never makes a visitor wait on a third party.** The render path reads cache only; a URL with nothing cached yet renders untouched and the fetch is queued to WP-Cron.
 * **Content flows back in.** The signed `citecue/v1` endpoint is how CiteCue delivers new content into WordPress — as drafts, with replayed signatures rejected — so the loop from "this page is missing" to "this page exists" closes without anyone copying and pasting.
 
+The service behind all of it is at [citecue.com](https://citecue.com).
+
 == Installation ==
+
+You need a CiteCue account before step 2 — sign up at [citecue.com](https://citecue.com).
 
 1. Install and activate the plugin from Plugins → Add New, or upload it under Plugins → Add New → Upload Plugin.
 2. Go to Settings → CiteCue and click "Connect to CiteCue".
@@ -47,10 +51,10 @@ Until you complete step 2, the plugin makes no outbound requests at all.
 
 == External services ==
 
-This plugin is the WordPress end of CiteCue, a hosted service at https://citecue.com that generates AI-optimized versions of your pages. The optimized pages, your llms.txt and the pushed draft content are all produced by that service, so the plugin cannot work without it. Nothing below happens until an administrator connects the site.
+This plugin is the WordPress end of CiteCue, a hosted service at [citecue.com](https://citecue.com) that generates AI-optimized versions of your pages. The optimized pages, your llms.txt and the pushed draft content are all produced by that service, so the plugin cannot work without it. Nothing below happens until an administrator connects the site.
 
-Terms of Service: https://citecue.com/terms
-Privacy Policy: https://citecue.com/privacy
+Terms of Service: [citecue.com/terms](https://citecue.com/terms)
+Privacy Policy: [citecue.com/privacy](https://citecue.com/privacy)
 
 The service is reached at `https://app.citecue.com` (or the origin you pin with the `CITECUE_API_BASE` constant, for self-hosted CiteCue deployments).
 
@@ -136,6 +140,9 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 
 == Upgrade Notice ==
 
+= 1.2.1 =
+Adds links to citecue.com from the settings screen, the Plugins list and this page. No change to what the plugin does on a request; nothing to reconfigure.
+
 = 1.2.0 =
 Adds page enhancements: a facts-and-FAQ section CiteCue composes for pages you already have, placed on the live page. Existing connections need one reconnect before CiteCue will send them — Settings → CiteCue will ask.
 
@@ -152,6 +159,12 @@ Adds enriched page metadata for live pages. Existing connections need one reconn
 The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploading the zip from GitHub, delete the old citecue folder after updating — your settings and connection are stored in the database and carry over untouched.
 
 == Changelog ==
+
+= 1.2.1 =
+* The settings screen now says where a CiteCue account comes from. Before connecting it links to citecue.com; once connected it names CiteCue as the source of what the site serves. The Plugins list gets a CiteCue.com link in the plugin's row.
+* This page now links to citecue.com in its own text. The directory does not turn a bare URL into a link, so the URLs in "External services" — including the terms and privacy policy — have been rendered as links rather than left as plain text.
+* The `Author URI` header points at citecue.com rather than at `app.citecue.com`, the login app. That is the link behind "By CiteCue" on the Plugins screen in wp-admin.
+* Documentation only otherwise: the description no longer leads with llms.txt, and several claims about coverage and speed were narrowed to what the code actually guarantees.
 
 = 1.2.0 =
 * New: page enhancements. CiteCue composes a collapsed facts-and-FAQ section for a page you already have — built from your answered facts and grounded FAQ entries, never generated by a model — and this release places it on that page, immediately before `</body>`.
