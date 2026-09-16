@@ -23,6 +23,14 @@ class Citecue_Settings {
 	const DEFAULT_API_BASE = 'https://app.citecue.com';
 
 	/**
+	 * The CiteCue site. Not overridable the way the app origin is: a
+	 * self-hosted or staging deployment moves the API, not the service the
+	 * plugin is an end of, and this is only ever used for links out of the
+	 * admin screens.
+	 */
+	const SITE_URL = 'https://citecue.com';
+
+	/**
 	 * Cached option value for this request.
 	 *
 	 * @var array|null

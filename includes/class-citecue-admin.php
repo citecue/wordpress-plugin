@@ -68,6 +68,7 @@ class Citecue_Admin {
 		add_action( 'admin_post_citecue_flush_cache', array( $this, 'handle_flush_cache' ) );
 		add_action( 'admin_post_citecue_regen_secret', array( $this, 'handle_regen_secret' ) );
 		add_filter( 'plugin_action_links_' . plugin_basename( CITECUE_PLUGIN_FILE ), array( $this, 'action_links' ) );
+		add_filter( 'plugin_row_meta', array( $this, 'row_meta' ), 10, 2 );
 	}
 
 	/**
@@ -110,6 +111,27 @@ class Citecue_Admin {
 	public function action_links( $links ) {
 		array_unshift( $links, '<a href="' . esc_url( $this->settings_url() ) . '">' . esc_html__( 'Settings', 'citecue-ai-auto-fix' ) . '</a>' );
 		return $links;
+	}
+
+	/**
+	 * Adds a link to CiteCue in this plugin's row on the Plugins screen.
+	 *
+	 * `plugin_row_meta` fires for every row, so the file has to be checked —
+	 * unlike `plugin_action_links_{$file}`, which is already ours.
+	 *
+	 * @param array  $meta Existing row meta.
+	 * @param string $file Plugin file the row is for.
+	 * @return array
+	 */
+	public function row_meta( $meta, $file ) {
+		if ( plugin_basename( CITECUE_PLUGIN_FILE ) !== $file ) {
+			return $meta;
+		}
+
+		$meta[] = '<a href="' . esc_url( Citecue_Settings::SITE_URL ) . '" target="_blank" rel="noopener noreferrer">'
+			. esc_html__( 'CiteCue.com', 'citecue-ai-auto-fix' ) . '</a>';
+
+		return $meta;
 	}
 
 	/**
@@ -607,6 +629,15 @@ class Citecue_Admin {
 				<?php wp_nonce_field( 'citecue_connect_start' ); ?>
 				<?php submit_button( __( 'Connect to CiteCue', 'citecue-ai-auto-fix' ), 'primary', 'submit', false ); ?>
 			</form>
+			<p class="description">
+				<?php
+				printf(
+					/* translators: %s: link to citecue.com. */
+					esc_html__( 'No CiteCue account yet? The plugin does nothing without one — see what CiteCue does and sign up at %s.', 'citecue-ai-auto-fix' ),
+					'<a href="' . esc_url( Citecue_Settings::SITE_URL ) . '" target="_blank" rel="noopener noreferrer">citecue.com</a>'
+				);
+				?>
+			</p>
 		</div>
 
 		<details style="margin-top:20px;max-width:720px;">
@@ -980,6 +1011,15 @@ class Citecue_Admin {
 			<p>
 				<?php $this->action_button( 'citecue_verify_install', __( 'Verify installation', 'citecue-ai-auto-fix' ) ); ?>
 				<?php $this->action_button( 'citecue_disconnect', __( 'Disconnect', 'citecue-ai-auto-fix' ) ); ?>
+			</p>
+			<p class="description">
+				<?php
+				printf(
+					/* translators: %s: link to citecue.com. */
+					esc_html__( 'The optimized pages, metadata and content this site serves are produced by CiteCue — %s.', 'citecue-ai-auto-fix' ),
+					'<a href="' . esc_url( Citecue_Settings::SITE_URL ) . '" target="_blank" rel="noopener noreferrer">citecue.com</a>'
+				);
+				?>
 			</p>
 		</div>
 		<?php
