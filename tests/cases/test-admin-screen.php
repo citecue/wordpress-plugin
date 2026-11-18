@@ -177,6 +177,56 @@ class Test_Citecue_Admin_Screen extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The row states what the Maximum status does to a push, so it never says
+	 * "drafts" just above a line saying this site publishes live.
+	 *
+	 * @dataProvider maximum_statuses
+	 *
+	 * @param string $cap  Maximum status.
+	 * @param string $says What the row says becomes of a push.
+	 * @return void
+	 */
+	public function test_content_pushes_row_states_the_maximum_status( $cap, $says ) {
+		$this->configure_delivery(
+			array(
+				'project_domain'     => 'example.org',
+				'ingest_enabled'     => true,
+				'ingest_post_status' => $cap,
+			)
+		);
+
+		$html = $this->render();
+
+		$this->assertStringContainsString( $says, $html );
+		$this->assertStringNotContainsString( 'unless raised below', $html );
+	}
+
+	/**
+	 * @return array<string, array{0: string, 1: string}>
+	 */
+	public function maximum_statuses() {
+		return array(
+			'draft'   => array( 'draft', 'Accepted (saved as drafts)' ),
+			'pending' => array( 'pending', 'Accepted (held for review, or saved as drafts)' ),
+			'publish' => array( 'publish', 'Accepted (may be published live)' ),
+		);
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_content_pushes_row_says_when_pushes_are_off() {
+		$this->configure_delivery(
+			array(
+				'project_domain' => 'example.org',
+				'ingest_enabled' => false,
+			)
+		);
+
+		$this->assertStringContainsString( 'Not accepted', $this->render() );
+	}
+
+	/**
 	 * When page enhancements are stale too, the notice leads with them, but
 	 * the card still shows the publish flag on its own row.
 	 *

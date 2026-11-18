@@ -1004,7 +1004,25 @@ class Citecue_Admin {
 				<tr>
 					<td><?php esc_html_e( 'Content pushes', 'citecue-ai-auto-fix' ); ?></td>
 					<td>
-						<?php echo $settings->get( 'ingest_enabled' ) ? esc_html__( 'Accepted (as drafts, unless raised below)', 'citecue-ai-auto-fix' ) : esc_html__( 'Not accepted', 'citecue-ai-auto-fix' ); ?>
+						<?php
+						// What the Maximum status does to a push (the ingest endpoint
+						// caps every push at it), so the row never says "drafts" on a
+						// site that publishes live.
+						if ( ! $settings->get( 'ingest_enabled' ) ) {
+							esc_html_e( 'Not accepted', 'citecue-ai-auto-fix' );
+						} else {
+							switch ( (string) $settings->get( 'ingest_post_status' ) ) {
+								case 'publish':
+									esc_html_e( 'Accepted (may be published live)', 'citecue-ai-auto-fix' );
+									break;
+								case 'pending':
+									esc_html_e( 'Accepted (held for review, or saved as drafts)', 'citecue-ai-auto-fix' );
+									break;
+								default:
+									esc_html_e( 'Accepted (saved as drafts)', 'citecue-ai-auto-fix' );
+							}
+						}
+						?>
 						<?php if ( $settings->publish_live_is_stale() ) : ?>
 							<br><span style="color:#996800;">&#8212;</span>
 							<?php
