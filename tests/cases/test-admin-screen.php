@@ -177,6 +177,30 @@ class Test_Citecue_Admin_Screen extends Citecue_Test_Case {
 	}
 
 	/**
+	 * When page enhancements are stale too, the notice leads with them, but
+	 * the card still shows the publish flag on its own row.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_still_shows_beside_another_reason() {
+		$this->configure_delivery(
+			array(
+				'project_domain'        => 'example.org',
+				'seo_head_enabled'      => true,
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'seo_head' ),
+				'ingest_enabled'        => true,
+				'ingest_post_status'    => 'publish',
+			)
+		);
+
+		$html = $this->render();
+
+		$this->assertStringContainsString( 'Ready here, but CiteCue has not been told yet', $html );
+		$this->assertStringContainsString( 'CiteCue has not been told this site now publishes live', $html );
+	}
+
+	/**
 	 * @return void
 	 */
 	public function test_a_connected_site_reports_the_last_verification() {

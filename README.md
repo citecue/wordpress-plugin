@@ -84,7 +84,7 @@ WordPress verifies the state, then server-to-server:
 
   `publish_live` follows the Maximum status setting rather than having a checkbox of its own, so it can never claim more than the plugin enforces. Draft and Pending both send `false`. The cap still decides every push.
 
-  When any capability except `woocommerce` no longer matches what was last reported (Maximum status raised or lowered after connecting, for example), Settings → CiteCue asks for a reconnect.
+  When any capability except `woocommerce` no longer matches what was last reported (Maximum status raised or lowered after connecting, for example), Settings → CiteCue asks for a reconnect. For `publish_live` it asks only while content pushes are accepted, because a site that accepts none is sent no posts.
 
 The full server-side contract is in [`docs/connect-handshake.md`](docs/connect-handshake.md).
 

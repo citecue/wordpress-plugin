@@ -347,7 +347,7 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	 * @return void
 	 */
 	public function test_moving_the_maximum_status_after_connecting_asks_for_a_reconnect() {
-		$this->http->queue( 'connect', 200, $this->claim_payload() );
+		$this->http->queue( 'connect', 200, $this->claim_payload( array( 'ingest' => true ) ) );
 		$this->connect->claim( 'one-time-code' );
 		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
 
@@ -362,7 +362,7 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
 
 		// Reconnecting re-reports it and the prompt goes away.
-		$this->http->queue( 'connect', 200, $this->claim_payload() );
+		$this->http->queue( 'connect', 200, $this->claim_payload( array( 'ingest' => true ) ) );
 		$this->connect->claim( 'one-time-code' );
 		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
 
@@ -424,12 +424,67 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 			array(
 				'seo_head_reported'     => false,
 				'seo_head_enabled'      => false,
+				'ingest_enabled'        => true,
 				'ingest_post_status'    => 'publish',
 				'capabilities_reported' => null,
 			)
 		);
 
 		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * A site that accepts no pushes is sent no posts, so the status CiteCue
+	 * would ask for does not matter yet, and prompting over it would be
+	 * nagging about nothing. The flag is still reported as Maximum status
+	 * says; only the prompt waits until pushes are switched on.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_waits_while_pushes_are_off() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'ingest_enabled'        => false,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			)
+		);
+
+		$this->assertTrue( $this->plugin->settings->declared_capabilities()['publish_live'] );
+		$this->assertFalse( $this->plugin->settings->publish_live_is_stale() );
+		$this->assertSame( '', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		// Switched on here without reconnecting: now it matters.
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$this->assertTrue( $this->plugin->settings->publish_live_is_stale() );
+		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * The publish flag's own staleness does not depend on which reason the
+	 * notice leads with, so the status card can show it even when another
+	 * reason wins.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_is_known_beside_another_reason() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'ingest_enabled'        => true,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => array( 'seo_head' ),
+			)
+		);
+
+		$this->assertSame( 'capabilities', $this->plugin->settings->seo_head_reconnect_reason() );
+		$this->assertTrue( $this->plugin->settings->publish_live_is_stale() );
 	}
 
 	/**

@@ -250,7 +250,8 @@ class Citecue_Settings {
 	 *                     connecting. Nothing about page enhancements changed,
 	 *                     so the `capabilities` message would be the wrong one.
 	 *                     When a delivery capability is stale as well, that
-	 *                     reason wins; the same reconnect fixes both.
+	 *                     reason wins; the same reconnect fixes both. Only
+	 *                     while pushes are accepted — see publish_live_is_stale().
 	 *
 	 * Consent is deliberately NOT among them. Whether the customer allows
 	 * content pushes gates the ingest endpoint and nothing on this path — page
@@ -290,7 +291,38 @@ class Citecue_Settings {
 
 		$stale = array_unique( array_merge( array_diff( $active, $declared ), array_diff( $declared, $active ) ) );
 
-		return array( 'publish_live' ) === array_values( $stale ) ? 'publish_live' : 'capabilities';
+		if ( array( 'publish_live' ) !== array_values( $stale ) ) {
+			return 'capabilities';
+		}
+
+		return $this->publish_live_is_stale() ? 'publish_live' : '';
+	}
+
+	/**
+	 * Whether CiteCue's record of `publish_live` disagrees with Maximum status
+	 * on a site that accepts pushes.
+	 *
+	 * Asked on its own rather than read off seo_head_reconnect_reason(),
+	 * because that names one reason and lets a stale delivery capability
+	 * outrank this one. The status card shows each on its own row, so it needs
+	 * to know about this one either way.
+	 *
+	 * A site that accepts no pushes is sent no posts, so the status CiteCue
+	 * would ask for makes no difference yet. The flag is still reported as
+	 * Maximum status says; this only keeps the prompt quiet until pushes are
+	 * switched on, the same way consent is never a reason to reconnect.
+	 *
+	 * @return bool
+	 */
+	public function publish_live_is_stale() {
+		if ( ! $this->is_connected() || ! $this->get( 'ingest_enabled' ) ) {
+			return false;
+		}
+
+		$declared = $this->get( 'capabilities_reported' );
+		$declared = is_array( $declared ) ? $declared : array();
+
+		return in_array( 'publish_live', $this->active_delivery_capabilities(), true ) !== in_array( 'publish_live', $declared, true );
 	}
 
 	/**

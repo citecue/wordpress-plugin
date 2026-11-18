@@ -278,9 +278,19 @@ class Citecue_Admin {
 			case 'publish_live':
 				// Maximum status moved since connecting. Nothing about page
 				// enhancements changed, so the message above would be wrong.
-				$message = 'publish' === (string) $this->plugin->settings->get( 'ingest_post_status' )
-					? __( 'Maximum status is now Published, but CiteCue does not know that yet. Until you reconnect, it will keep sending the posts you schedule as drafts.', 'citecue-ai-auto-fix' )
-					: __( 'Maximum status is no longer Published, but CiteCue still expects this site to publish posts live. Reconnect so CiteCue stops telling you posts will go live when they will arrive as drafts.', 'citecue-ai-auto-fix' );
+				switch ( (string) $this->plugin->settings->get( 'ingest_post_status' ) ) {
+					case 'publish':
+						$message = __( 'Maximum status is now Published, but CiteCue does not know that yet. Until you reconnect, it will keep sending the posts you schedule as drafts.', 'citecue-ai-auto-fix' );
+						break;
+
+					case 'pending':
+						$message = __( 'Maximum status is no longer Published, but CiteCue still expects this site to publish posts live. Reconnect so CiteCue stops telling you posts will go live when they will arrive pending review.', 'citecue-ai-auto-fix' );
+						break;
+
+					default:
+						$message = __( 'Maximum status is no longer Published, but CiteCue still expects this site to publish posts live. Reconnect so CiteCue stops telling you posts will go live when they will arrive as drafts.', 'citecue-ai-auto-fix' );
+						break;
+				}
 				break;
 
 			default:
@@ -992,7 +1002,7 @@ class Citecue_Admin {
 					<td><?php esc_html_e( 'Content pushes', 'citecue-ai-auto-fix' ); ?></td>
 					<td>
 						<?php echo $settings->get( 'ingest_enabled' ) ? esc_html__( 'Accepted (as drafts, unless raised below)', 'citecue-ai-auto-fix' ) : esc_html__( 'Not accepted', 'citecue-ai-auto-fix' ); ?>
-						<?php if ( 'publish_live' === $settings->seo_head_reconnect_reason() ) : ?>
+						<?php if ( $settings->publish_live_is_stale() ) : ?>
 							<br><span style="color:#996800;">&#8212;</span>
 							<?php
 							echo 'publish' === (string) $settings->get( 'ingest_post_status' )

@@ -171,6 +171,7 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 				'seo_head_enabled'      => true,
 				'seo_head_reported'     => true,
 				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+				'ingest_enabled'        => true,
 				'ingest_post_status'    => 'publish',
 			)
 		);
@@ -180,6 +181,62 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		$this->assertStringContainsString( 'Reconnect to CiteCue', $html );
 		$this->assertStringContainsString( 'Maximum status', $html );
 		$this->assertStringNotContainsString( 'page enhancements', $html );
+	}
+
+	/**
+	 * Lowered to Pending, a post CiteCue asks to publish arrives pending
+	 * review, not as a draft, so the message must not say draft.
+	 *
+	 * @dataProvider lowered_caps
+	 *
+	 * @param string $cap  Maximum status below Published.
+	 * @param string $says What the message says becomes of a post.
+	 * @return void
+	 */
+	public function test_a_lowered_cap_says_what_becomes_of_a_post( $cap, $says ) {
+		$this->configure_delivery(
+			array(
+				'seo_head_enabled'      => true,
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'body_blocks', 'publish_live', 'seo_head', 'seo_head_baseline' ),
+				'ingest_enabled'        => true,
+				'ingest_post_status'    => $cap,
+			)
+		);
+
+		$html = $this->notices_on( 'settings_page_citecue' );
+
+		$this->assertStringContainsString( 'no longer Published', $html );
+		$this->assertStringContainsString( $says, $html );
+	}
+
+	/**
+	 * @return array
+	 */
+	public function lowered_caps() {
+		return array(
+			'pending' => array( 'pending', 'pending review' ),
+			'draft'   => array( 'draft', 'as drafts' ),
+		);
+	}
+
+	/**
+	 * With pushes off nothing is sent here, so there is nothing to warn about.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_raises_no_notice_while_pushes_are_off() {
+		$this->configure_delivery(
+			array(
+				'seo_head_enabled'      => true,
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+				'ingest_enabled'        => false,
+				'ingest_post_status'    => 'publish',
+			)
+		);
+
+		$this->assertStringNotContainsString( 'Reconnect to CiteCue', $this->notices_on( 'settings_page_citecue' ) );
 	}
 
 	/**

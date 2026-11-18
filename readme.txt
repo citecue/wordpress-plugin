@@ -165,7 +165,7 @@ The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploadin
 
 = 1.3.0 =
 * Connecting now tells CiteCue whether this site publishes pushed posts live. When Maximum status is Published, CiteCue's Calendar defaults its posts to published instead of draft. Draft and Pending keep them as drafts, as before. There is no new setting: the flag follows Maximum status, so it can never promise more than the site allows, and the cap still has the final say on every post.
-* Raising or lowering Maximum status after connecting now asks for a reconnect, because CiteCue learns the setting only when the site connects. The prompt and the "Content pushes" status line say it is about publishing, not about page enhancements.
+* Raising or lowering Maximum status after connecting now asks for a reconnect while content pushes are accepted, because CiteCue learns the setting only when the site connects. The prompt and the "Content pushes" status line say it is about publishing, not about page enhancements.
 
 = 1.2.1 =
 * The settings screen now says where a CiteCue account comes from. Before connecting it links to citecue.com; once connected it names CiteCue as the source of what the site serves. The Plugins list gets a CiteCue.com link in the plugin's row.
