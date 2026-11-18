@@ -181,6 +181,9 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		$this->assertStringContainsString( 'Reconnect to CiteCue', $html );
 		$this->assertStringContainsString( 'Maximum status', $html );
 		$this->assertStringNotContainsString( 'page enhancements', $html );
+		// Only the default is stale: the Calendar can still publish a post
+		// live, so the notice must not say every post arrives as a draft.
+		$this->assertStringContainsString( 'default to drafts unless', $html );
 	}
 
 	/**
@@ -207,6 +210,7 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		$html = $this->notices_on( 'settings_page_citecue' );
 
 		$this->assertStringContainsString( 'no longer Published', $html );
+		$this->assertStringContainsString( 'default posts you schedule to published', $html );
 		$this->assertStringContainsString( $says, $html );
 	}
 
