@@ -361,4 +361,64 @@ class Test_Citecue_Settings extends Citecue_Test_Case {
 		$this->assertStringStartsWith( 'cws_', $first );
 		$this->assertSame( $first, $this->settings->ensure_ingest_secret() );
 	}
+
+	/**
+	 * `publish_live` tells CiteCue it may land a push as published rather than
+	 * as a draft. It is derived from the cap that enforces the same thing on
+	 * this site, so it can never claim more than the ingest endpoint allows:
+	 * true only when that cap really is Published.
+	 *
+	 * @dataProvider status_caps
+	 *
+	 * @param string $cap      Maximum status.
+	 * @param bool   $expected Whether publish_live is declared.
+	 * @return void
+	 */
+	public function test_publish_live_follows_the_maximum_status( $cap, $expected ) {
+		$this->settings->update( array( 'ingest_post_status' => $cap ) );
+
+		$declared = $this->settings->declared_capabilities();
+
+		$this->assertArrayHasKey( 'publish_live', $declared );
+		$this->assertSame( $expected, $declared['publish_live'] );
+	}
+
+	/**
+	 * @return array
+	 */
+	public function status_caps() {
+		return array(
+			'published' => array( 'publish', true ),
+			'draft'     => array( 'draft', false ),
+			'pending'   => array( 'pending', false ),
+		);
+	}
+
+	/**
+	 * The default cap is Draft, so a fresh install never declares it.
+	 *
+	 * @return void
+	 */
+	public function test_a_fresh_install_does_not_declare_publish_live() {
+		$this->assertFalse( $this->settings->declared_capabilities()['publish_live'] );
+	}
+
+	/**
+	 * It gates what CiteCue sends — the status a Calendar push asks for — so
+	 * it belongs in the set the reconnect prompt compares, unlike
+	 * `woocommerce`. And it does not ride `seo_head_enabled`: a site with
+	 * injection switched off still accepts pushes.
+	 *
+	 * @return void
+	 */
+	public function test_publish_live_is_compared_by_the_reconnect_check() {
+		$this->settings->update(
+			array(
+				'ingest_post_status' => 'publish',
+				'seo_head_enabled'   => false,
+			)
+		);
+
+		$this->assertSame( array( 'publish_live' ), $this->settings->active_delivery_capabilities() );
+	}
 }

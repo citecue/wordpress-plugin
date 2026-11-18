@@ -63,7 +63,8 @@ WordPress: [Connect to CiteCue]
         ▼  redirect back to `return` with ?citecue_code=…&citecue_state=…
 WordPress verifies the state, then server-to-server:
         POST {app}/api/delivery/v2/connect/claim
-             { code, site_url, rest_url, ingest_secret, plugin_version, woocommerce }
+             { code, site_url, rest_url, ingest_secret, plugin_version,
+               woocommerce, seo_head, body_blocks, seo_head_baseline, publish_live }
           →  { apiKey, publicKey, domain, ingest }
 ```
 
@@ -71,6 +72,19 @@ WordPress verifies the state, then server-to-server:
 - **The code is bearer-grade** — whoever presents it receives an API key — so it is single-use, short-lived, and CiteCue binds it to the `site_url` presented at claim time.
 - **The ingest secret only ever travels in the claim body**, server-to-server, never through a browser redirect. That request does not follow redirects, so a redirect cannot replay it at another host.
 - **Ingest stays off unless CiteCue's connect screen says otherwise** (`ingest: true`). A response that omits the field never grants write access — silence is not consent.
+- **Capabilities are flat booleans on the claim body**, and CiteCue reads a missing one as NO. They are re-sent on every reconnect, so a reconnect can withdraw one as well as add it:
+
+  | Capability | True when | What CiteCue does with it |
+  |---|---|---|
+  | `woocommerce` | WooCommerce is active | Recorded for reporting only |
+  | `seo_head` | "Enrich page metadata" is on | Sends head tags on `/seo-head` |
+  | `body_blocks` | "Enrich page metadata" is on | Sends page-enhancement blocks on `/seo-head` |
+  | `seo_head_baseline` | "Enrich page metadata" is on | Sends site-wide identity metadata for pages with none |
+  | `publish_live` | **Maximum status** is Published | Defaults Calendar pushes to `status: publish` instead of a draft |
+
+  `publish_live` follows the Maximum status setting rather than having a checkbox of its own, so it can never claim more than the plugin enforces. Draft and Pending both send `false`. The cap still decides every push.
+
+  When any capability except `woocommerce` no longer matches what was last reported (Maximum status raised or lowered after connecting, for example), Settings → CiteCue asks for a reconnect.
 
 The full server-side contract is in [`docs/connect-handshake.md`](docs/connect-handshake.md).
 
@@ -147,7 +161,7 @@ Signatures are **single-use**: replaying a captured request is rejected with `40
 | `content` | string, required | Post body HTML (sanitized with `wp_kses_post`) |
 | `excerpt` | string | |
 | `slug` | string | |
-| `status` | `draft`\|`pending`\|`publish` | Capped by the "Maximum status" setting (default `draft`) |
+| `status` | `draft`\|`pending`\|`publish` | Capped by the "Maximum status" setting (default `draft`). With the cap at Published, the plugin tells CiteCue so at connect (`publish_live`) |
 | `type` | `post`\|`page`\|`product` | Default from settings; `product` requires WooCommerce |
 | `categories` | string[] | Term names, created if missing (posts → `category`, products → `product_cat`) |
 | `tags` | string[] | Term names (posts → `post_tag`, products → `product_tag`) |

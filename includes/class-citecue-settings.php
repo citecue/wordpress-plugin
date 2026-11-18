@@ -245,6 +245,12 @@ class Citecue_Settings {
 	 *  - `capabilities` — the metadata setting agrees, but this build can do
 	 *                     something the connection never announced. What every
 	 *                     site upgrading into a new capability reports.
+	 *  - `publish_live` — only `publish_live` disagrees: Maximum status has
+	 *                     been raised to Published, or lowered from it, since
+	 *                     connecting. Nothing about page enhancements changed,
+	 *                     so the `capabilities` message would be the wrong one.
+	 *                     When a delivery capability is stale as well, that
+	 *                     reason wins; the same reconnect fixes both.
 	 *
 	 * Consent is deliberately NOT among them. Whether the customer allows
 	 * content pushes gates the ingest endpoint and nothing on this path — page
@@ -253,7 +259,8 @@ class Citecue_Settings {
 	 * to grant write access to their site for a feature that does not use it.
 	 * "Content from CiteCue" reports that state, on its own, where it belongs.
 	 *
-	 * @return string One of 'enabled', 'disabled', 'capabilities', or ''.
+	 * @return string One of 'enabled', 'disabled', 'capabilities',
+	 *                'publish_live', or ''.
 	 */
 	public function seo_head_reconnect_reason() {
 		if ( ! $this->is_connected() ) {
@@ -268,18 +275,22 @@ class Citecue_Settings {
 			return $enabled ? 'enabled' : 'disabled';
 		}
 
-		$declared = $this->get( 'capabilities_reported' );
-		$active   = $this->active_delivery_capabilities();
-
 		// Never reported a set at all: an install connected before this plugin
 		// declared capabilities by name. It is under-claiming everything it can
-		// now do, so it needs a reconnect the moment there is anything to
-		// claim — and needs no reconnect when there is not.
-		if ( ! is_array( $declared ) ) {
-			return array() === $active ? '' : 'capabilities';
+		// now do, which reads the same as having reported an empty set: a
+		// reconnect the moment there is anything to claim, and none when there
+		// is not.
+		$declared = $this->get( 'capabilities_reported' );
+		$declared = is_array( $declared ) ? $declared : array();
+		$active   = $this->active_delivery_capabilities();
+
+		if ( $active === $declared ) {
+			return '';
 		}
 
-		return $active === $declared ? '' : 'capabilities';
+		$stale = array_unique( array_merge( array_diff( $active, $declared ), array_diff( $declared, $active ) ) );
+
+		return array( 'publish_live' ) === array_values( $stale ) ? 'publish_live' : 'capabilities';
 	}
 
 	/**
@@ -302,6 +313,18 @@ class Citecue_Settings {
 	 * CiteCue's JSON-LD outright when the page already carries any, so the
 	 * site-wide identity block can never become a second competing one.
 	 *
+	 * `publish_live` tells CiteCue that this site's Maximum status
+	 * (`ingest_post_status`) is Published, so content pushes from the
+	 * Calendar may default to `status: publish` instead of a draft. It is true
+	 * only for Published; Draft and Pending both mean NO. It is derived from
+	 * that setting rather than given a checkbox of its own on purpose: one
+	 * control, so the flag can never claim more than the ingest endpoint
+	 * enforces. A separate "let CiteCue publish live" switch could be ticked
+	 * while the cap still held every push back as a draft, and CiteCue would
+	 * tell the customer the site was ready to publish when it was not. The cap
+	 * still has the final say on every push either way — this only stops the
+	 * app's default disagreeing with it.
+	 *
 	 * @return array<string,bool>
 	 */
 	public function declared_capabilities() {
@@ -312,6 +335,7 @@ class Citecue_Settings {
 			'seo_head'          => $seo_head,
 			'body_blocks'       => $seo_head,
 			'seo_head_baseline' => $seo_head,
+			'publish_live'      => 'publish' === (string) $this->get( 'ingest_post_status' ),
 		);
 	}
 
@@ -325,13 +349,19 @@ class Citecue_Settings {
 	 * not a broken feature, and prompting them to reconnect over it would be
 	 * nagging about nothing.
 	 *
+	 * `publish_live` is among them although it is not on the delivery path:
+	 * it gates the status CiteCue asks for on every Calendar push, and CiteCue
+	 * learns it only from the claim. Raising Maximum status without
+	 * reconnecting leaves every post defaulting to a draft; lowering it leaves
+	 * the app telling the customer the site publishes live when it does not.
+	 *
 	 * @return string[]
 	 */
 	public function active_delivery_capabilities() {
 		$declared = $this->declared_capabilities();
 		$names    = array();
 
-		foreach ( array( 'seo_head', 'body_blocks', 'seo_head_baseline' ) as $name ) {
+		foreach ( array( 'seo_head', 'body_blocks', 'seo_head_baseline', 'publish_live' ) as $name ) {
 			if ( ! empty( $declared[ $name ] ) ) {
 				$names[] = $name;
 			}

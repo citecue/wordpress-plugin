@@ -159,6 +159,30 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A stale publish flag gets a message about publishing. The generic
+	 * capabilities message talks about page enhancements, which have not
+	 * changed, and would send an administrator looking in the wrong place.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_gets_its_own_message() {
+		$this->configure_delivery(
+			array(
+				'seo_head_enabled'      => true,
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+				'ingest_post_status'    => 'publish',
+			)
+		);
+
+		$html = $this->notices_on( 'settings_page_citecue' );
+
+		$this->assertStringContainsString( 'Reconnect to CiteCue', $html );
+		$this->assertStringContainsString( 'Maximum status', $html );
+		$this->assertStringNotContainsString( 'page enhancements', $html );
+	}
+
+	/**
 	 * Dismissed means dismissed: the condition is still true, and the notice
 	 * still does not come back.
 	 *

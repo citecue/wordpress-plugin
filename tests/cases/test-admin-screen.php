@@ -152,6 +152,31 @@ class Test_Citecue_Admin_Screen extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The status card puts a stale publish flag on the row it is about —
+	 * content pushes — and leaves page enhancements, which have not changed,
+	 * reading as they are.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_is_shown_against_content_pushes() {
+		$this->configure_delivery(
+			array(
+				'project_domain'        => 'example.org',
+				'seo_head_enabled'      => true,
+				'seo_head_reported'     => true,
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+				'ingest_enabled'        => true,
+				'ingest_post_status'    => 'publish',
+			)
+		);
+
+		$html = $this->render();
+
+		$this->assertStringContainsString( 'Placed on the pages you have approved', $html );
+		$this->assertStringContainsString( 'CiteCue has not been told this site now publishes live', $html );
+	}
+
+	/**
 	 * @return void
 	 */
 	public function test_a_connected_site_reports_the_last_verification() {
