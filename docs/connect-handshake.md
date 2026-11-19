@@ -42,9 +42,15 @@ Request body:
   "rest_url": "https://example.com/wp-json/citecue/v1/",
   "ingest_secret": "cws_…",
   "plugin_version": "1.0.0",
-  "woocommerce": true
+  "woocommerce": true,
+  "seo_head": true,
+  "body_blocks": true,
+  "seo_head_baseline": true,
+  "publish_live": false
 }
 ```
+
+The last five are capability flags: flat booleans, re-sent on every claim, and a missing one means NO. `publish_live` is true only when the site's Maximum status (`ingest_post_status`) is `publish`; CiteCue may then default content pushes to `status: publish`. The plugin's cap still applies to every push.
 
 Steps:
 

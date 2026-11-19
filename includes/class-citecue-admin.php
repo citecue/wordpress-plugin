@@ -275,6 +275,27 @@ class Citecue_Admin {
 				$message = __( 'this version can place CiteCue page enhancements — the facts-and-FAQ sections you approve — on your pages, but CiteCue does not know that yet. Until you reconnect, it will hold on to every enhancement you approve instead of sending it here.', 'citecue-ai-auto-fix' );
 				break;
 
+			case 'publish_live':
+				// Maximum status moved since connecting. Nothing about page
+				// enhancements changed, so the message above would be wrong.
+				// The flag sets only CiteCue's DEFAULT: the Calendar's own
+				// "Publish live" switch still overrides it per post, so the
+				// wording must not promise what every post will do.
+				switch ( (string) $this->plugin->settings->get( 'ingest_post_status' ) ) {
+					case 'publish':
+						$message = __( 'Maximum status is now Published, but CiteCue does not know that yet. Until you reconnect, posts you schedule in CiteCue will default to drafts unless you switch them to publish live there.', 'citecue-ai-auto-fix' );
+						break;
+
+					case 'pending':
+						$message = __( 'Maximum status is no longer Published, but CiteCue still expects this site to publish posts live. Until you reconnect, CiteCue will default posts you schedule to published, and this site will hold them pending review instead.', 'citecue-ai-auto-fix' );
+						break;
+
+					default:
+						$message = __( 'Maximum status is no longer Published, but CiteCue still expects this site to publish posts live. Until you reconnect, CiteCue will default posts you schedule to published, and this site will hold them as drafts instead.', 'citecue-ai-auto-fix' );
+						break;
+				}
+				break;
+
 			default:
 				$message = __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' );
 				break;
@@ -962,7 +983,7 @@ class Citecue_Admin {
 					<td>
 						<?php if ( ! $settings->get( 'seo_head_enabled' ) ) : ?>
 							<?php esc_html_e( 'Off — they arrive with page metadata, which is switched off above.', 'citecue-ai-auto-fix' ); ?>
-						<?php elseif ( '' !== $settings->seo_head_reconnect_reason() ) : ?>
+						<?php elseif ( in_array( $settings->seo_head_reconnect_reason(), array( 'enabled', 'disabled', 'capabilities' ), true ) ) : ?>
 							<span style="color:#996800;">&#8212;</span>
 							<?php esc_html_e( 'Ready here, but CiteCue has not been told yet — reconnect to update it.', 'citecue-ai-auto-fix' ); ?>
 						<?php else : ?>
@@ -982,7 +1003,35 @@ class Citecue_Admin {
 				</tr>
 				<tr>
 					<td><?php esc_html_e( 'Content pushes', 'citecue-ai-auto-fix' ); ?></td>
-					<td><?php echo $settings->get( 'ingest_enabled' ) ? esc_html__( 'Accepted (as drafts, unless raised below)', 'citecue-ai-auto-fix' ) : esc_html__( 'Not accepted', 'citecue-ai-auto-fix' ); ?></td>
+					<td>
+						<?php
+						// What the Maximum status does to a push (the ingest endpoint
+						// caps every push at it), so the row never says "drafts" on a
+						// site that publishes live.
+						if ( ! $settings->get( 'ingest_enabled' ) ) {
+							esc_html_e( 'Not accepted', 'citecue-ai-auto-fix' );
+						} else {
+							switch ( (string) $settings->get( 'ingest_post_status' ) ) {
+								case 'publish':
+									esc_html_e( 'Accepted (may be published live)', 'citecue-ai-auto-fix' );
+									break;
+								case 'pending':
+									esc_html_e( 'Accepted (held for review, or saved as drafts)', 'citecue-ai-auto-fix' );
+									break;
+								default:
+									esc_html_e( 'Accepted (saved as drafts)', 'citecue-ai-auto-fix' );
+							}
+						}
+						?>
+						<?php if ( $settings->publish_live_is_stale() ) : ?>
+							<br><span style="color:#996800;">&#8212;</span>
+							<?php
+							echo 'publish' === (string) $settings->get( 'ingest_post_status' )
+								? esc_html__( 'CiteCue has not been told this site now publishes live — reconnect to update it.', 'citecue-ai-auto-fix' )
+								: esc_html__( 'CiteCue has not been told this site no longer publishes live — reconnect to update it.', 'citecue-ai-auto-fix' );
+							?>
+						<?php endif; ?>
+					</td>
 				</tr>
 				<tr>
 					<td><?php esc_html_e( 'Last check', 'citecue-ai-auto-fix' ); ?></td>

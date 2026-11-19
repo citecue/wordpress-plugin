@@ -301,6 +301,193 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	}
 
 	/**
+	 * The claim carries `publish_live` as a flat boolean beside the others,
+	 * and sends it as false rather than omitting it when the cap is below
+	 * Published — absence and false both mean NO to CiteCue.
+	 *
+	 * @return void
+	 */
+	public function test_a_claim_reports_whether_it_may_publish_live() {
+		$this->plugin->settings->update( array( 'ingest_post_status' => 'publish' ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertTrue( $sent['publish_live'] );
+		$this->assertSame(
+			array( 'body_blocks', 'publish_live', 'seo_head', 'seo_head_baseline' ),
+			$this->plugin->settings->get( 'capabilities_reported' )
+		);
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * @return void
+	 */
+	public function test_a_claim_below_published_says_it_may_not_publish_live() {
+		$this->plugin->settings->update( array( 'ingest_post_status' => 'pending' ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertArrayHasKey( 'publish_live', $sent );
+		$this->assertFalse( $sent['publish_live'] );
+	}
+
+	/**
+	 * Raising Maximum status after connecting leaves CiteCue defaulting every
+	 * Calendar push to a draft the site would have published; lowering it
+	 * leaves CiteCue telling the customer the site is ready to publish live
+	 * when the cap will hold each post back. CiteCue learns the flag only from
+	 * the claim, so both directions must ask for a reconnect — and must say
+	 * it is about publishing, not about page enhancements nothing changed.
+	 *
+	 * @return void
+	 */
+	public function test_moving_the_maximum_status_after_connecting_asks_for_a_reconnect() {
+		$this->http->queue( 'connect', 200, $this->claim_payload( array( 'ingest' => true ) ) );
+		$this->connect->claim( 'one-time-code' );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+
+		// Raised: the settings form writes through the same sanitize callback.
+		$this->plugin->settings->update( array( 'ingest_post_status' => 'publish' ) );
+
+		$this->assertNotSame(
+			$this->plugin->settings->get( 'capabilities_reported' ),
+			$this->plugin->settings->active_delivery_capabilities()
+		);
+		$this->assertTrue( $this->plugin->settings->needs_seo_head_reconnect() );
+		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		// Reconnecting re-reports it and the prompt goes away.
+		$this->http->queue( 'connect', 200, $this->claim_payload( array( 'ingest' => true ) ) );
+		$this->connect->claim( 'one-time-code' );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+
+		// Lowered: the flag must come off CiteCue's record too.
+		$this->plugin->settings->update( array( 'ingest_post_status' => 'draft' ) );
+
+		$this->assertTrue( $this->plugin->settings->needs_seo_head_reconnect() );
+		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * When a delivery capability has gone stale too, the page-enhancements
+	 * reason wins: it is the one that withholds something from live pages, and
+	 * the one reconnect fixes both.
+	 *
+	 * @return void
+	 */
+	public function test_stale_delivery_capabilities_outrank_a_stale_publish_flag() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => array( 'seo_head' ),
+			)
+		);
+
+		$this->assertSame( 'capabilities', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * An install connected before capabilities were reported by name, with a
+	 * cap of Published, under-claims both; it reads as the delivery case.
+	 *
+	 * @return void
+	 */
+	public function test_a_connection_predating_named_capabilities_reports_the_delivery_reason() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => null,
+			)
+		);
+
+		$this->assertSame( 'capabilities', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * And with injection off, the publish flag alone is what is missing.
+	 *
+	 * @return void
+	 */
+	public function test_a_connection_predating_named_capabilities_with_only_publish_live() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => false,
+				'seo_head_enabled'      => false,
+				'ingest_enabled'        => true,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => null,
+			)
+		);
+
+		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * A site that accepts no pushes is sent no posts, so the status CiteCue
+	 * would ask for does not matter yet, and prompting over it would be
+	 * nagging about nothing. The flag is still reported as Maximum status
+	 * says; only the prompt waits until pushes are switched on.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_waits_while_pushes_are_off() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'ingest_enabled'        => false,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => array( 'body_blocks', 'seo_head', 'seo_head_baseline' ),
+			)
+		);
+
+		$this->assertTrue( $this->plugin->settings->declared_capabilities()['publish_live'] );
+		$this->assertFalse( $this->plugin->settings->publish_live_is_stale() );
+		$this->assertSame( '', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		// Switched on here without reconnecting: now it matters.
+		$this->plugin->settings->update( array( 'ingest_enabled' => true ) );
+
+		$this->assertTrue( $this->plugin->settings->publish_live_is_stale() );
+		$this->assertSame( 'publish_live', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * The publish flag's own staleness does not depend on which reason the
+	 * notice leads with, so the status card can show it even when another
+	 * reason wins.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_publish_flag_is_known_beside_another_reason() {
+		$this->configure_delivery();
+		$this->plugin->settings->update(
+			array(
+				'seo_head_reported'     => true,
+				'seo_head_enabled'      => true,
+				'ingest_enabled'        => true,
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => array( 'seo_head' ),
+			)
+		);
+
+		$this->assertSame( 'capabilities', $this->plugin->settings->seo_head_reconnect_reason() );
+		$this->assertTrue( $this->plugin->settings->publish_live_is_stale() );
+	}
+
+	/**
 	 * Installing WooCommerce after connecting leaves stale information on the
 	 * key, not a broken feature — it gates nothing CiteCue sends — so it must
 	 * not raise a prompt that asks the customer to fix something that is not
