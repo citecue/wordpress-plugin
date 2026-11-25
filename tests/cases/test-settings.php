@@ -27,6 +27,11 @@ class Test_Citecue_Settings extends Citecue_Test_Case {
 	public function set_up() {
 		parent::set_up();
 		$this->settings = new Citecue_Settings();
+
+		// These cases pin the other capabilities' exact sets; the language
+		// capability has its own cases (test-languages.php, below), and would
+		// otherwise join every set in plain and Polylang mode.
+		$this->plugin->settings->update( array( 'language_pages_enabled' => false ) );
 	}
 
 	/**
@@ -420,5 +425,68 @@ class Test_Citecue_Settings extends Citecue_Test_Case {
 		);
 
 		$this->assertSame( array( 'publish_live' ), $this->settings->active_delivery_capabilities() );
+	}
+
+	/**
+	 * The opt-out is on by default, and a form that does not post it leaves it
+	 * alone (the API-key form owns only the connection fields).
+	 *
+	 * @return void
+	 */
+	public function test_language_pages_default_on_and_survive_a_form_that_omits_them() {
+		$this->assertTrue( Citecue_Settings::defaults()['language_pages_enabled'] );
+		$this->assertNull( Citecue_Settings::defaults()['translation_languages_reported'] );
+
+		$this->settings->update( array( 'language_pages_enabled' => true ) );
+		$out = $this->settings->sanitize( array( 'serve_enabled' => '1' ) );
+
+		$this->assertTrue( $out['language_pages_enabled'] );
+	}
+
+	/**
+	 * The settings checkbox posts a hidden 0 beside it, so unticking works.
+	 *
+	 * @return void
+	 */
+	public function test_unticking_language_pages_is_saved() {
+		$out = $this->settings->sanitize( array( 'language_pages_enabled' => '0' ) );
+		$this->assertFalse( $out['language_pages_enabled'] );
+
+		$out = $this->settings->sanitize( array( 'language_pages_enabled' => '1' ) );
+		$this->assertTrue( $out['language_pages_enabled'] );
+	}
+
+	/**
+	 * The reported list is normalized to a sorted list, with null kept.
+	 *
+	 * @return void
+	 */
+	public function test_the_reported_language_list_is_sorted_and_nullable() {
+		$out = $this->settings->sanitize( array( 'translation_languages_reported' => array( 'pl', 'en', '' ) ) );
+		$this->assertSame( array( 'en', 'pl' ), $out['translation_languages_reported'] );
+
+		$out = $this->settings->sanitize( array( 'translation_languages_reported' => null ) );
+		$this->assertNull( $out['translation_languages_reported'] );
+	}
+
+	/**
+	 * The "Language pages" checkbox sits on the connected settings screen
+	 * where the language setup can honour it.
+	 *
+	 * @return void
+	 */
+	public function test_the_settings_screen_offers_the_language_pages_checkbox() {
+		if ( ! Citecue_Languages::declarable() ) {
+			$this->markTestSkipped( 'Not declarable in this mode.' );
+		}
+		$this->configure_delivery();
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		ob_start();
+		( new Citecue_Admin( $this->plugin ) )->render_page();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringContainsString( 'Language pages', $html );
+		$this->assertStringContainsString( '[language_pages_enabled]', $html );
 	}
 }

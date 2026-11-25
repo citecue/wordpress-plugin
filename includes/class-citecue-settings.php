@@ -45,37 +45,46 @@ class Citecue_Settings {
 	public static function defaults() {
 		return array(
 			// Connection.
-			'api_base'                => self::DEFAULT_API_BASE,
-			'api_key'                 => '',
-			'public_key'              => '',
-			'project_domain'          => '',
+			'api_base'                       => self::DEFAULT_API_BASE,
+			'api_key'                        => '',
+			'public_key'                     => '',
+			'project_domain'                 => '',
 			// Delivery.
-			'serve_enabled'           => true,
-			'llms_txt_enabled'        => true,
-			'seo_head_enabled'        => true,
+			'serve_enabled'                  => true,
+			'llms_txt_enabled'               => true,
+			'seo_head_enabled'               => true,
 			// The value of seo_head_enabled last reported to CiteCue, or null
 			// if this site has never reported one. CiteCue records the
 			// capability on the API key at connect time and has no other way to
 			// learn it, so this is how the settings screen knows to ask for a
 			// reconnect — see needs_seo_head_reconnect().
-			'seo_head_reported'       => null,
+			'seo_head_reported'              => null,
 			// The capability names last reported to CiteCue, or null if this
 			// site has never reported any. Kept alongside seo_head_reported
 			// rather than replacing it: that one tracks a SETTING the customer
 			// can toggle, this one tracks what this BUILD of the plugin is able
 			// to do, and only one of them changes when the plugin updates.
-			'capabilities_reported'   => null,
+			'capabilities_reported'          => null,
+			// Whether this site offers to receive CiteCue's language versions
+			// of answer pages. On by default: the capability is only declared
+			// where a language setup can honour it, and the checkbox is the
+			// customer's way to opt out.
+			'language_pages_enabled'         => true,
+			// The language codes last reported to CiteCue with the claim, or
+			// null when none were (plain mode, or never connected). Sorted, so
+			// only a real change in the set asks for a reconnect.
+			'translation_languages_reported' => null,
 			// Content ingest (CiteCue -> WordPress post creation).
-			'ingest_enabled'          => false,
+			'ingest_enabled'                 => false,
 			// When CiteCue was last found to hold no signing secret for this
 			// site while pushes were still switched on here, so the settings
 			// screen can say why the toggle moved. 0 when that has not
 			// happened, or since been resolved.
-			'content_push_revoked_at' => 0,
-			'ingest_secret'           => '',
-			'ingest_post_status'      => 'draft',
-			'ingest_post_type'        => 'post',
-			'ingest_author'           => 0,
+			'content_push_revoked_at'        => 0,
+			'ingest_secret'                  => '',
+			'ingest_post_status'             => 'draft',
+			'ingest_post_type'               => 'post',
+			'ingest_author'                  => 0,
 		);
 	}
 
@@ -245,6 +254,10 @@ class Citecue_Settings {
 	 *  - `capabilities` — the metadata setting agrees, but this build can do
 	 *                     something the connection never announced. What every
 	 *                     site upgrading into a new capability reports.
+	 *  - `languages`    — the capabilities agree but the site's language list moved
+	 *                     (a Polylang language added or removed, or a switch
+	 *                     between plain and Polylang). CiteCue holds the list from
+	 *                     the claim only.
 	 *  - `publish_live` — only `publish_live` disagrees: Maximum status has
 	 *                     been raised to Published, or lowered from it, since
 	 *                     connecting. Nothing about page enhancements changed,
@@ -261,7 +274,7 @@ class Citecue_Settings {
 	 * "Content from CiteCue" reports that state, on its own, where it belongs.
 	 *
 	 * @return string One of 'enabled', 'disabled', 'capabilities',
-	 *                'publish_live', or ''.
+	 *                'languages', 'publish_live', or ''.
 	 */
 	public function seo_head_reconnect_reason() {
 		if ( ! $this->is_connected() ) {
@@ -286,7 +299,7 @@ class Citecue_Settings {
 		$active   = $this->active_delivery_capabilities();
 
 		if ( $active === $declared ) {
-			return '';
+			return $this->translation_languages_are_stale() ? 'languages' : '';
 		}
 
 		$stale = array_unique( array_merge( array_diff( $active, $declared ), array_diff( $declared, $active ) ) );
@@ -295,7 +308,46 @@ class Citecue_Settings {
 			return 'capabilities';
 		}
 
+		if ( $this->translation_languages_are_stale() ) {
+			return 'languages';
+		}
+
 		return $this->publish_live_is_stale() ? 'publish_live' : '';
+	}
+
+	/**
+	 * The language codes this site would send with a claim now, sorted, or null
+	 * when none would be sent (plain mode, or `language_pages` not declared).
+	 *
+	 * @return string[]|null
+	 */
+	public function translation_languages() {
+		$declared = $this->declared_capabilities();
+		if ( empty( $declared['language_pages'] ) || Citecue_Languages::MODE_PLAIN === Citecue_Languages::mode() ) {
+			return null;
+		}
+		return Citecue_Languages::declared_codes();
+	}
+
+	/**
+	 * Whether the language list CiteCue holds disagrees with the one this site
+	 * would send now.
+	 *
+	 * CiteCue learns the list only from the claim, so a language added in
+	 * Polylang is invisible to it until a reconnect. Compared as sorted lists
+	 * (null for none), so reordering languages never prompts, while switching
+	 * between plain and Polylang does: one is null, the other a list.
+	 *
+	 * @return bool
+	 */
+	public function translation_languages_are_stale() {
+		$reported = $this->get( 'translation_languages_reported' );
+		$reported = is_array( $reported ) ? array_values( array_map( 'strval', $reported ) ) : null;
+		if ( null !== $reported ) {
+			sort( $reported );
+		}
+
+		return $reported !== $this->translation_languages();
 	}
 
 	/**
@@ -364,6 +416,9 @@ class Citecue_Settings {
 
 		return array(
 			'woocommerce'       => class_exists( 'WooCommerce' ),
+			// The customer's own opt-out wins; otherwise whether this site's
+			// language setup can honour it. See Citecue_Languages::declarable().
+			'language_pages'    => (bool) $this->get( 'language_pages_enabled' ) && Citecue_Languages::declarable(),
 			'seo_head'          => $seo_head,
 			'body_blocks'       => $seo_head,
 			'seo_head_baseline' => $seo_head,
@@ -393,7 +448,7 @@ class Citecue_Settings {
 		$declared = $this->declared_capabilities();
 		$names    = array();
 
-		foreach ( array( 'seo_head', 'body_blocks', 'seo_head_baseline', 'publish_live' ) as $name ) {
+		foreach ( array( 'seo_head', 'body_blocks', 'seo_head_baseline', 'publish_live', 'language_pages' ) as $name ) {
 			if ( ! empty( $declared[ $name ] ) ) {
 				$names[] = $name;
 			}
@@ -462,6 +517,12 @@ class Citecue_Settings {
 		$out['llms_txt_enabled'] = ! empty( $input['llms_txt_enabled'] );
 		$out['seo_head_enabled'] = ! empty( $input['seo_head_enabled'] );
 		$out['ingest_enabled']   = ! empty( $input['ingest_enabled'] );
+		// Absent means "not posted by this form", not "off": a few forms own
+		// only some of the fields. Only the settings screen renders the box,
+		// and it always posts a hidden 0 beside it.
+		if ( array_key_exists( 'language_pages_enabled', $input ) ) {
+			$out['language_pages_enabled'] = ! empty( $input['language_pages_enabled'] );
+		}
 		// Not a form field: written only by the consent reconcile, and cleared
 		// the moment pushes are switched back on, so a stale explanation can
 		// never outlive the state it explains.
@@ -516,6 +577,18 @@ class Citecue_Settings {
 				$names = array_values( array_filter( array_map( 'strval', (array) $reported ), 'strlen' ) );
 				sort( $names );
 				$out['capabilities_reported'] = $names;
+			}
+		}
+
+		// Same tri-state as the two above, as a sorted list of codes.
+		if ( array_key_exists( 'translation_languages_reported', $input ) ) {
+			$langs = $input['translation_languages_reported'];
+			if ( null === $langs ) {
+				$out['translation_languages_reported'] = null;
+			} else {
+				$codes = array_values( array_filter( array_map( 'strval', (array) $langs ), 'strlen' ) );
+				sort( $codes );
+				$out['translation_languages_reported'] = $codes;
 			}
 		}
 

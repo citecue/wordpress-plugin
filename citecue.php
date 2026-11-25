@@ -142,6 +142,7 @@ define( 'CITECUE_VERSION', '1.3.0' );
 define( 'CITECUE_PLUGIN_FILE', __FILE__ );
 define( 'CITECUE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
+require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-languages.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-settings.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-crawlers.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-cache.php';
