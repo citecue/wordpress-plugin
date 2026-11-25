@@ -153,6 +153,8 @@ require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-proxy.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-seo-head.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-llms-txt.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-ingest.php';
+require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-translations.php';
+require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-translations-head.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-admin.php';
 require_once CITECUE_PLUGIN_DIR . 'includes/class-citecue-plugin.php';
 

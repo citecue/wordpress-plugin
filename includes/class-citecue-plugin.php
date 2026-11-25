@@ -93,6 +93,7 @@ final class Citecue_Plugin {
 		( new Citecue_Proxy( $this ) )->register();
 		( new Citecue_Seo_Head( $this ) )->register();
 		( new Citecue_Ingest( $this ) )->register();
+		( new Citecue_Translations_Head() )->register();
 
 		if ( is_admin() ) {
 			( new Citecue_Admin( $this ) )->register();
