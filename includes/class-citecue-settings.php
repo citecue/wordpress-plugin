@@ -258,6 +258,8 @@ class Citecue_Settings {
 	 *                     (a Polylang language added or removed, or a switch
 	 *                     between plain and Polylang). CiteCue holds the list from
 	 *                     the claim only.
+	 *  - `language_pages` — only `language_pages` (alone, or with `publish_live`)
+	 *                     disagrees: a site upgrading into language versions.
 	 *  - `publish_live` — only `publish_live` disagrees: Maximum status has
 	 *                     been raised to Published, or lowered from it, since
 	 *                     connecting. Nothing about page enhancements changed,
@@ -274,7 +276,7 @@ class Citecue_Settings {
 	 * "Content from CiteCue" reports that state, on its own, where it belongs.
 	 *
 	 * @return string One of 'enabled', 'disabled', 'capabilities',
-	 *                'languages', 'publish_live', or ''.
+	 *                'languages', 'language_pages', 'publish_live', or ''.
 	 */
 	public function seo_head_reconnect_reason() {
 		if ( ! $this->is_connected() ) {
@@ -304,7 +306,15 @@ class Citecue_Settings {
 
 		$stale = array_unique( array_merge( array_diff( $active, $declared ), array_diff( $declared, $active ) ) );
 
-		if ( array( 'publish_live' ) !== array_values( $stale ) ) {
+		// A 1.4.0 site upgrading into language pages: the page-enhancements
+		// message would be wrong, and so would any hint that pushes are on.
+		$stale = array_values( $stale );
+		sort( $stale );
+		if ( array( 'language_pages' ) === $stale || array( 'language_pages', 'publish_live' ) === $stale ) {
+			return 'language_pages';
+		}
+
+		if ( array( 'publish_live' ) !== $stale ) {
 			return 'capabilities';
 		}
 

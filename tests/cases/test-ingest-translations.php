@@ -313,6 +313,40 @@ class Test_Citecue_Ingest_Translations extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A trashed, not yet linked sibling is refused before it is linked: the
+	 * link would put a trashed page into the live group.
+	 *
+	 * @return void
+	 */
+	public function test_a_trashed_unlinked_sibling_is_not_linked() {
+		$main = $this->push_main( 'main-1' );
+		$id   = $this->unlinked_citecue_page(
+			'sib-1',
+			array(
+				'post_parent' => $main,
+				'post_name'   => 'pl',
+			)
+		);
+		wp_trash_post( $id );
+
+		$this->assertRefused( 410, 'citecue_trashed', $this->push_sibling( 'sib-1', 'main-1' ) );
+
+		$this->assertSame( 'trash', get_post_status( $id ) );
+		$this->assertSame( '', (string) get_post_meta( $id, '_citecue_translation_of', true ) );
+		switch ( Citecue_Languages::mode() ) {
+			case Citecue_Languages::MODE_POLYLANG:
+				$this->assertNotContains( $id, array_map( 'intval', pll_get_post_translations( $main ) ) );
+				break;
+			case Citecue_Languages::MODE_WPML:
+				$this->assertNotSame(
+					apply_filters( 'wpml_element_trid', null, $main, 'post_page' ),
+					apply_filters( 'wpml_element_trid', null, $id, 'post_page' )
+				);
+				break;
+		}
+	}
+
+	/**
 	 * A site that switched from plain mode to a translation plugin links the
 	 * existing sibling into the group, without moving or renaming it.
 	 *
@@ -567,6 +601,33 @@ class Test_Citecue_Ingest_Translations extends Citecue_Test_Case {
 
 		$this->assertRefused( 500, 'citecue_translation_link_failed', $response );
 		$this->assertSame( 0, $this->post_id_for( 'sib-1' ) );
+		$this->assertSame( 0, (int) $this->count_pages_titled( 'Acme FAQ (pl)' ) );
+		$this->assertNull( $this->lock_row( 'main-1' ), 'The lock is released.' );
+	}
+
+	/**
+	 * Anything thrown between the insert and the link (a vendor call, a hook)
+	 * also leaves no draft behind.
+	 *
+	 * @return void
+	 */
+	public function test_a_throw_after_the_insert_deletes_the_new_post() {
+		$this->push_main( 'main-1' );
+		add_action(
+			'added_post_meta',
+			static function ( $meta_id, $object_id, $meta_key ) {
+				unset( $meta_id, $object_id );
+				if ( '_citecue_external_id' === $meta_key ) {
+					throw new RuntimeException( 'vendor failed' );
+				}
+			},
+			10,
+			3
+		);
+
+		$response = $this->push_sibling( 'sib-1', 'main-1' );
+
+		$this->assertRefused( 500, 'citecue_translation_link_failed', $response );
 		$this->assertSame( 0, (int) $this->count_pages_titled( 'Acme FAQ (pl)' ) );
 		$this->assertNull( $this->lock_row( 'main-1' ), 'The lock is released.' );
 	}

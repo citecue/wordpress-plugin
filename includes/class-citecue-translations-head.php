@@ -101,9 +101,15 @@ class Citecue_Translations_Head {
 			return;
 		}
 
+		$members = $this->members( $main_id, 'publish' );
+		// One query each for the members' meta and posts, rather than one per
+		// member from language_of() and get_permalink() below.
+		update_meta_cache( 'post', $members );
+		_prime_post_caches( $members, true, true );
+
 		$links = array();
 		$seen  = array();
-		foreach ( $this->members( $main_id, 'publish' ) as $member_id ) {
+		foreach ( $members as $member_id ) {
 			$code = $this->language_of( $member_id, $main_id );
 			if ( '' === $code || isset( $seen[ $code ] ) ) {
 				continue;

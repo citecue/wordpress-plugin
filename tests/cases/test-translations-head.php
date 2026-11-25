@@ -218,6 +218,58 @@ class Test_Citecue_Translations_Head extends Citecue_Test_Case {
 	}
 
 	/**
+	 * Printing the group costs the same number of queries however many
+	 * members it has: member meta and posts are primed in bulk, not read one
+	 * by one.
+	 *
+	 * @return void
+	 */
+	public function test_hreflang_query_count_does_not_grow_with_the_group() {
+		$small = $this->main();
+		$this->sibling( $small, 'pl' );
+		$this->sibling( $small, 'de' );
+		$large = $this->main();
+		foreach ( array( 'pl', 'de', 'fr', 'es', 'it' ) as $code ) {
+			$this->sibling( $large, $code );
+		}
+
+		$small_count = $this->queries_printing_head( $small );
+		$large_count = $this->queries_printing_head( $large );
+
+		$this->assertSame( $small_count, $large_count, 'Queries must not grow with the group.' );
+		$this->assertLessThan( 12, $large_count );
+	}
+
+	/**
+	 * Total queries to print a post's wp_head with cold caches.
+	 *
+	 * @param int $post_id Post id.
+	 * @return int
+	 */
+	private function queries_printing_head( $post_id ) {
+		$this->go_to( get_permalink( $post_id ) );
+		// One-off option bootstrap (salts, theme mods) is not the group's cost:
+		// print (and flush) twice to settle it, then count a cold-cache print.
+		for ( $warm = 0; $warm < 2; $warm++ ) {
+			ob_start();
+			do_action( 'wp_head' );
+			ob_end_clean();
+			wp_cache_flush();
+		}
+		$count  = 0;
+		$filter = static function ( $sql ) use ( &$count ) {
+			++$count;
+			return $sql;
+		};
+		add_filter( 'query', $filter );
+		ob_start();
+		do_action( 'wp_head' );
+		ob_end_clean();
+		remove_filter( 'query', $filter );
+		return $count;
+	}
+
+	/**
 	 * The html lang is replaced on a post with a stored language only.
 	 *
 	 * @return void

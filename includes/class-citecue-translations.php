@@ -185,6 +185,17 @@ class Citecue_Translations {
 					)
 				);
 			}
+			// Before any linking: a trashed post must not join the live group.
+			if ( 'trash' === get_post_status( $existing_id ) ) {
+				return new WP_Error(
+					'citecue_trashed',
+					__( 'A post with this external_id was trashed in WordPress; restore or delete it permanently first.', 'citecue-ai-auto-fix' ),
+					array(
+						'status'  => 410,
+						'post_id' => $existing_id,
+					)
+				);
+			}
 		}
 
 		$holder = $this->group_member( $main_id, $code, $slug, $mode );
@@ -196,51 +207,55 @@ class Citecue_Translations {
 
 		// 5. Create the post if needed, always as a draft until it is linked.
 		$created = ! $existing_id;
-		if ( $created ) {
-			$postarr = array(
-				'post_title'   => $title,
-				'post_content' => $content,
-				'post_status'  => 'draft',
-				'post_type'    => 'page',
-				'post_author'  => $this->ingest->resolve_author(),
-			);
-			if ( isset( $params['excerpt'] ) ) {
-				$postarr['post_excerpt'] = sanitize_textarea_field( (string) $params['excerpt'] );
-			}
-			if ( Citecue_Languages::MODE_PLAIN === $mode ) {
-				// /<main-slug>/<code>/; WordPress de-duplicates a taken slug.
-				$postarr['post_parent'] = $main_id;
-				$postarr['post_name']   = $code;
-			}
-
-			/** This filter is documented in includes/class-citecue-ingest.php */
-			$postarr = apply_filters( 'citecue_ingest_postarr', $postarr, $params );
-
-			$result = wp_insert_post( $postarr, true );
-			if ( is_wp_error( $result ) ) {
-				$result->add_data( array( 'status' => 500 ) );
-				return $result;
-			}
-			$post_id = (int) $result;
-			// Polylang/WPML give a new post the site default on insert; the right
-			// language goes on before anything else can read the wrong one.
-			if ( Citecue_Languages::MODE_PLAIN !== $mode ) {
-				self::set_vendor_language( $post_id, $slug, $mode );
-			}
-			update_post_meta( $post_id, '_citecue_external_id', $external_id );
-		} else {
-			$post_id = $existing_id;
-		}
-
-		// 6. Link it, before any content check, so a sibling a translator
-		// edited is linked even when its content is refused below.
+		$post_id = (int) $existing_id;
+		$linked  = false;
+		// One guarded block: a vendor or hook failure anywhere after the insert
+		// must not leave a half-made draft behind.
 		try {
+			if ( $created ) {
+				$postarr = array(
+					'post_title'   => $title,
+					'post_content' => $content,
+					'post_status'  => 'draft',
+					'post_type'    => 'page',
+					'post_author'  => $this->ingest->resolve_author(),
+				);
+				if ( isset( $params['excerpt'] ) ) {
+					$postarr['post_excerpt'] = sanitize_textarea_field( (string) $params['excerpt'] );
+				}
+				if ( Citecue_Languages::MODE_PLAIN === $mode ) {
+					// /<main-slug>/<code>/; WordPress de-duplicates a taken slug.
+					$postarr['post_parent'] = $main_id;
+					$postarr['post_name']   = $code;
+				}
+
+				/** This filter is documented in includes/class-citecue-ingest.php */
+				$postarr = apply_filters( 'citecue_ingest_postarr', $postarr, $params );
+
+				$result = wp_insert_post( $postarr, true );
+				if ( is_wp_error( $result ) ) {
+					$result->add_data( array( 'status' => 500 ) );
+					return $result;
+				}
+				$post_id = (int) $result;
+				// Polylang/WPML give a new post the site default on insert; the right
+				// language goes on before anything else can read the wrong one.
+				if ( Citecue_Languages::MODE_PLAIN !== $mode ) {
+					self::set_vendor_language( $post_id, $slug, $mode );
+				}
+				update_post_meta( $post_id, '_citecue_external_id', $external_id );
+			} else {
+				$post_id = $existing_id;
+			}
+
+			// 6. Link it, before any content check, so a sibling a translator
+			// edited is linked even when its content is refused below.
 			$linked = $this->link( $post_id, $main_id, $code, $slug, $main_code, $main_slug, $mode );
 		} catch ( Throwable $e ) {
 			$linked = false;
 		}
 		if ( ! $linked ) {
-			if ( $created ) {
+			if ( $created && $post_id ) {
 				wp_delete_post( $post_id, true );
 			}
 			return new WP_Error( 'citecue_translation_link_failed', __( 'The page could not be linked to its main page.', 'citecue-ai-auto-fix' ), array( 'status' => 500 ) );
@@ -248,16 +263,6 @@ class Citecue_Translations {
 
 		// 7. An existing post's content, under today's rules.
 		if ( ! $created ) {
-			if ( 'trash' === get_post_status( $post_id ) ) {
-				return new WP_Error(
-					'citecue_trashed',
-					__( 'A post with this external_id was trashed in WordPress; restore or delete it permanently first.', 'citecue-ai-auto-fix' ),
-					array(
-						'status'  => 410,
-						'post_id' => $post_id,
-					)
-				);
-			}
 			if ( empty( $params['force'] ) && $this->ingest->edited_locally( $post_id ) ) {
 				return new WP_Error(
 					'citecue_edited_locally',

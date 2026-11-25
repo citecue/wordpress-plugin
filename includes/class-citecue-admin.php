@@ -296,6 +296,10 @@ class Citecue_Admin {
 				}
 				break;
 
+			case 'language_pages':
+				$message = __( 'this version can receive language versions of your answer pages, but CiteCue does not know that yet. Reconnect CiteCue so it can send language versions of your answer pages to this site.', 'citecue-ai-auto-fix' );
+				break;
+
 			case 'languages':
 				$message = __( 'the languages on this site have changed since you connected, and CiteCue does not know that yet. Until you reconnect, it will plan language versions of your pages for the old list.', 'citecue-ai-auto-fix' );
 				break;

@@ -428,6 +428,45 @@ class Test_Citecue_Settings extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A 1.4.0 site upgrading into `language_pages` is told about language
+	 * versions, not page enhancements; any other stale set stays `capabilities`.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_language_pages_capability_has_its_own_reason() {
+		$this->settings->update(
+			array(
+				'language_pages_enabled' => true,
+				'api_key'                => self::API_KEY,
+				'public_key'             => self::PUBLIC_KEY,
+				'seo_head_enabled'       => true,
+				'seo_head_reported'      => true,
+			)
+		);
+		$active = $this->settings->active_delivery_capabilities();
+		if ( ! in_array( 'language_pages', $active, true ) ) {
+			$this->markTestSkipped( 'This mode does not declare language_pages.' );
+		}
+
+		$without = array_values( array_diff( $active, array( 'language_pages' ) ) );
+		$this->settings->update( array( 'capabilities_reported' => $without ) );
+		$this->assertSame( 'language_pages', $this->settings->seo_head_reconnect_reason() );
+
+		// Together with publish_live it is still the language message.
+		$this->settings->update(
+			array(
+				'ingest_post_status'    => 'publish',
+				'capabilities_reported' => array_values( array_diff( $this->settings->active_delivery_capabilities(), array( 'language_pages', 'publish_live' ) ) ),
+			)
+		);
+		$this->assertSame( 'language_pages', $this->settings->seo_head_reconnect_reason() );
+
+		// Another stale capability keeps the page-enhancements reason.
+		$this->settings->update( array( 'capabilities_reported' => array() ) );
+		$this->assertSame( 'capabilities', $this->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
 	 * The opt-out is on by default, and a form that does not post it leaves it
 	 * alone (the API-key form owns only the connection fields).
 	 *

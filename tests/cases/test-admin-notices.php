@@ -428,4 +428,26 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		$this->assertStringContainsString( 'languages on this site have changed', $html );
 		$this->assertStringNotContainsString( 'enriched title', $html );
 	}
+
+	/**
+	 * Upgrading into language pages gets the language message, not the
+	 * page-enhancements one, and promises nothing about content pushes.
+	 *
+	 * @return void
+	 */
+	public function test_a_site_upgrading_into_language_pages_gets_its_own_message() {
+		$this->plugin->settings->update( array( 'language_pages_enabled' => true ) );
+		$this->configure_delivery( array( 'seo_head_reported' => true ) );
+		$active = $this->plugin->settings->active_delivery_capabilities();
+		if ( ! in_array( 'language_pages', $active, true ) ) {
+			$this->markTestSkipped( 'This mode does not declare language_pages.' );
+		}
+		$this->plugin->settings->update( array( 'capabilities_reported' => array_values( array_diff( $active, array( 'language_pages' ) ) ) ) );
+
+		$html = $this->notices_on( 'settings_page_citecue' );
+
+		$this->assertStringContainsString( 'language versions of your answer pages', $html );
+		$this->assertStringNotContainsString( 'page enhancements', $html );
+		$this->assertStringNotContainsString( 'enriched title', $html );
+	}
 }
