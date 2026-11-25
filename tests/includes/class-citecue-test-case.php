@@ -56,6 +56,8 @@ abstract class Citecue_Test_Case extends WP_UnitTestCase {
 		$this->http->enable();
 
 		Citecue_Woocommerce_Stub::reset();
+		Citecue_Wpml_Stub::reset();
+		citecue_ensure_polylang_languages();
 
 		$_SERVER['REQUEST_METHOD'] = 'GET';
 		$_SERVER['HTTP_HOST']      = 'example.org';
