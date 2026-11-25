@@ -39,6 +39,11 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		$this->admin   = new Citecue_Admin( $this->plugin );
 		$this->user_id = self::factory()->user->create( array( 'role' => 'administrator' ) );
 		wp_set_current_user( $this->user_id );
+
+		// These cases pin the other capabilities' exact sets; the language
+		// capability has its own cases (test-languages.php, below), and would
+		// otherwise join every set in plain and Polylang mode.
+		$this->plugin->settings->update( array( 'language_pages_enabled' => false ) );
 	}
 
 	/**
@@ -397,5 +402,52 @@ class Test_Citecue_Admin_Notices extends Citecue_Test_Case {
 		$this->request_dismissal( 'made_up', wp_create_nonce( 'citecue_dismiss_made_up' ) );
 
 		$this->assertEmpty( get_user_option( Citecue_Admin::DISMISSED_OPTION_PREFIX . 'made_up', $this->user_id ) );
+	}
+
+	/**
+	 * A stale language list gets its own message, not the metadata one.
+	 *
+	 * @return void
+	 */
+	public function test_a_stale_language_list_gets_its_own_message() {
+		$this->plugin->settings->update( array( 'language_pages_enabled' => true ) );
+		$this->configure_delivery( array( 'seo_head_reported' => true ) );
+		$this->plugin->settings->update(
+			array(
+				'capabilities_reported'          => $this->plugin->settings->active_delivery_capabilities(),
+				// Never the list this site would send now, in any mode.
+				'translation_languages_reported' => array( 'zz' ),
+			)
+		);
+		if ( 'wpml' === Citecue_Languages::mode() ) {
+			$this->markTestSkipped( 'WPML mode does not declare yet.' );
+		}
+
+		$html = $this->notices_on( 'settings_page_citecue' );
+
+		$this->assertStringContainsString( 'languages on this site have changed', $html );
+		$this->assertStringNotContainsString( 'enriched title', $html );
+	}
+
+	/**
+	 * Upgrading into language pages gets the language message, not the
+	 * page-enhancements one, and promises nothing about content pushes.
+	 *
+	 * @return void
+	 */
+	public function test_a_site_upgrading_into_language_pages_gets_its_own_message() {
+		$this->plugin->settings->update( array( 'language_pages_enabled' => true ) );
+		$this->configure_delivery( array( 'seo_head_reported' => true ) );
+		$active = $this->plugin->settings->active_delivery_capabilities();
+		if ( ! in_array( 'language_pages', $active, true ) ) {
+			$this->markTestSkipped( 'This mode does not declare language_pages.' );
+		}
+		$this->plugin->settings->update( array( 'capabilities_reported' => array_values( array_diff( $active, array( 'language_pages' ) ) ) ) );
+
+		$html = $this->notices_on( 'settings_page_citecue' );
+
+		$this->assertStringContainsString( 'language versions of your answer pages', $html );
+		$this->assertStringNotContainsString( 'page enhancements', $html );
+		$this->assertStringNotContainsString( 'enriched title', $html );
 	}
 }

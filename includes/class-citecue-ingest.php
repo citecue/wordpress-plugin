@@ -26,6 +26,14 @@
  *       meta_description string optional — stored as _citecue_meta_description
  *       source       string  optional — provenance label (e.g. "content_brief:opp_123")
  *       force        bool    optional — overwrite even if the post was edited in WordPress
+ *       language     string  optional — ISO 639-1 code; on a new post it becomes the post's
+ *                                       language, on an existing one only if it has none;
+ *                                       a code the site lacks is ignored
+ *       translation_of string optional — the main page's external_id: files this page as its
+ *                                       translation (see Citecue_Translations)
+ *       translation_of_language string — the main page's ISO 639-1 code, with translation_of
+ *
+ *     Every success answers `language`, the ISO code the post now carries.
  *
  *   GET /wp-json/citecue/v1/health — public, minimal install handshake.
  *
@@ -208,6 +216,11 @@ class Citecue_Ingest {
 
 		$content = wp_kses_post( $content_raw );
 
+		if ( isset( $params['translation_of'] ) && '' !== $params['translation_of'] ) {
+			$translations = new Citecue_Translations( $this );
+			return $translations->push( $params, $external_id, $title, $content );
+		}
+
 		$settings = $this->plugin->settings;
 		$status   = $this->resolve_status( isset( $params['status'] ) ? (string) $params['status'] : '' );
 
@@ -282,6 +295,10 @@ class Citecue_Ingest {
 			);
 		}
 
+		// Read before the update: Polylang gives an updated post with no
+		// language the default one, which would hide that it had none.
+		$language_settable = ! $existing_id || ( array_key_exists( 'language', $params ) && ! Citecue_Translations::has_language( $existing_id ) );
+
 		if ( 'product' === $post_type ) {
 			$post_id = $this->upsert_product( $existing_id, $params, $title, $content, $status );
 			if ( is_wp_error( $post_id ) ) {
@@ -322,6 +339,10 @@ class Citecue_Ingest {
 			$post_id = (int) $result;
 		}
 
+		if ( array_key_exists( 'language', $params ) ) {
+			Citecue_Translations::apply_primary_language( $post_id, $params['language'], $language_settable );
+		}
+
 		if ( 'post' === $post_type || 'product' === $post_type ) {
 			$category_taxonomy = 'product' === $post_type ? 'product_cat' : 'category';
 			$tag_taxonomy      = 'product' === $post_type ? 'product_tag' : 'post_tag';
@@ -332,6 +353,21 @@ class Citecue_Ingest {
 				wp_set_post_terms( $post_id, array_map( 'sanitize_text_field', array_map( 'strval', $params['tags'] ) ), $tag_taxonomy );
 			}
 		}
+
+		return $this->finish_push( $post_id, $params, ! $existing_id );
+	}
+
+	/**
+	 * Records the push on the post and builds the success response, shared by
+	 * every push path.
+	 *
+	 * @param int   $post_id Post ID.
+	 * @param array $params  Raw request payload.
+	 * @param bool  $created Whether this push created the post.
+	 * @return WP_REST_Response
+	 */
+	public function finish_push( $post_id, array $params, $created ) {
+		$external_id = $this->sanitize_external_id( $params['external_id'] );
 
 		update_post_meta( $post_id, '_citecue_external_id', $external_id );
 		update_post_meta( $post_id, '_citecue_synced_at', time() );
@@ -349,8 +385,8 @@ class Citecue_Ingest {
 
 		$response = rest_ensure_response(
 			array(
-				'created'   => ! $existing_id,
-				'updated'   => (bool) $existing_id,
+				'created'   => (bool) $created,
+				'updated'   => ! $created,
 				'post_id'   => $post_id,
 				'status'    => get_post_status( $post_id ),
 				'permalink' => get_permalink( $post_id ),
@@ -361,9 +397,10 @@ class Citecue_Ingest {
 					),
 					admin_url( 'post.php' )
 				),
+				'language'  => Citecue_Translations::response_language( $post_id ),
 			)
 		);
-		$response->set_status( $existing_id ? 200 : 201 );
+		$response->set_status( $created ? 201 : 200 );
 		return $response;
 	}
 
@@ -373,7 +410,7 @@ class Citecue_Ingest {
 	 * @param mixed $raw Raw external id.
 	 * @return string
 	 */
-	private function sanitize_external_id( $raw ) {
+	public function sanitize_external_id( $raw ) {
 		$id = preg_replace( '/[^A-Za-z0-9:_\-\.]/', '', (string) $raw );
 		return substr( (string) $id, 0, 128 );
 	}
@@ -386,7 +423,7 @@ class Citecue_Ingest {
 	 * @param string $requested Requested status ('' for none).
 	 * @return string
 	 */
-	private function resolve_status( $requested ) {
+	public function resolve_status( $requested ) {
 		$rank = array(
 			'draft'   => 0,
 			'pending' => 1,
@@ -408,7 +445,7 @@ class Citecue_Ingest {
 	 *
 	 * @return int User ID (0 when the site has no administrator).
 	 */
-	private function resolve_author() {
+	public function resolve_author() {
 		$configured = (int) $this->plugin->settings->get( 'ingest_author' );
 		if ( $configured > 0 ) {
 			$user = get_userdata( $configured );
@@ -501,7 +538,7 @@ class Citecue_Ingest {
 	 * @param string $external_id External id.
 	 * @return int Post ID, or 0.
 	 */
-	private function find_by_external_id( $external_id ) {
+	public function find_by_external_id( $external_id ) {
 		$found = get_posts(
 			array(
 				'post_type'      => array( 'post', 'page', 'product' ),
@@ -509,6 +546,9 @@ class Citecue_Ingest {
 				'posts_per_page' => 1,
 				'fields'         => 'ids',
 				'no_found_rows'  => true,
+				// Every language: Polylang otherwise filters to the current one,
+				// and a post it hid would be pushed again as a duplicate.
+				'lang'           => '',
 				'meta_key'       => '_citecue_external_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 				'meta_value'     => $external_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
 			)
@@ -522,7 +562,7 @@ class Citecue_Ingest {
 	 * @param int $post_id Post ID.
 	 * @return bool
 	 */
-	private function edited_locally( $post_id ) {
+	public function edited_locally( $post_id ) {
 		$last_hash = (string) get_post_meta( $post_id, '_citecue_content_hash', true );
 		if ( '' === $last_hash ) {
 			return false;

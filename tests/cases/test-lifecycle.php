@@ -406,6 +406,22 @@ class Test_Citecue_Lifecycle extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A translation lock row abandoned by a dead request is a plain option;
+	 * left behind it would outlive the plugin.
+	 *
+	 * @return void
+	 */
+	public function test_uninstall_removes_translation_lock_rows() {
+		add_option( Citecue_Translations::LOCK_PREFIX . 'abc123', 'token', '', 'no' );
+		add_option( 'citecue_tlockxother', 'keep' );
+
+		$this->run_uninstall();
+
+		$this->assertFalse( get_option( Citecue_Translations::LOCK_PREFIX . 'abc123' ) );
+		$this->assertSame( 'keep', get_option( 'citecue_tlockxother' ), 'Only the lock prefix is matched.' );
+	}
+
+	/**
 	 * Dismissals are one row per administrator, in a table nobody else cleans
 	 * up — so they go with everything else rather than outliving the plugin.
 	 *

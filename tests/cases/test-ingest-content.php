@@ -544,6 +544,65 @@ class Test_Citecue_Ingest_Content extends Citecue_Test_Case {
 	}
 
 	/**
+	 * A push without the language fields answers what it always did, plus
+	 * `language` (the language the post now carries), and leaves no language
+	 * meta behind.
+	 *
+	 * @return void
+	 */
+	public function test_a_push_without_language_fields_is_unchanged() {
+		$response = $this->push( array( 'type' => 'page' ) );
+		$data     = $response->get_data();
+
+		$this->assertSame( 201, $response->get_status() );
+		$this->assertSame( array( 'created', 'updated', 'post_id', 'status', 'permalink', 'edit_link', 'language' ), array_keys( $data ) );
+		$this->assertSame( '', get_post_meta( $data['post_id'], '_citecue_language', true ) );
+		$this->assertSame( '', get_post_meta( $data['post_id'], '_citecue_translation_of', true ) );
+		$this->assertSame( 0, (int) get_post( $data['post_id'] )->post_parent );
+	}
+
+	/**
+	 * An empty `translation_of` is not a translation push.
+	 *
+	 * @return void
+	 */
+	public function test_an_empty_translation_of_is_an_ordinary_push() {
+		$response = $this->push( array( 'translation_of' => '' ) );
+
+		$this->assertSame( 201, $response->get_status() );
+		$this->assertSame( '', get_post_meta( $response->get_data()['post_id'], '_citecue_translation_of', true ) );
+	}
+
+	/**
+	 * The external_id lookup sees posts in every language: Polylang filters
+	 * queries to one language unless told otherwise, and a post it hid would
+	 * be pushed again as a duplicate.
+	 *
+	 * @return void
+	 */
+	public function test_a_post_in_another_language_is_updated_not_duplicated() {
+		if ( ! getenv( 'CITECUE_WITH_POLYLANG' ) ) {
+			$this->markTestSkipped( 'Needs CITECUE_WITH_POLYLANG=1 (composer run test:polylang).' );
+		}
+		$first = $this->push();
+		pll_set_post_language( $first->get_data()['post_id'], 'pl' );
+		// What Polylang's front-end context does to every query (the suite
+		// boots its REST context, which does not filter), in Polylang's code.
+		add_action(
+			'parse_query',
+			static function ( $query ) {
+				$pll_query = new PLL_Query( $query, PLL()->model );
+				$pll_query->filter_query( PLL()->model->get_language( 'en' ) );
+			}
+		);
+
+		$second = $this->push( array( 'title' => 'Second' ), array( 'timestamp' => time() + 1 ) );
+
+		$this->assertSame( 200, $second->get_status() );
+		$this->assertSame( $first->get_data()['post_id'], $second->get_data()['post_id'] );
+	}
+
+	/**
 	 * The meta description is printed for pushed content…
 	 *
 	 * @return void

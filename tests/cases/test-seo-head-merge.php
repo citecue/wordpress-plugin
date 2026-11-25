@@ -318,4 +318,38 @@ class Test_Citecue_Seo_Head_Merge extends Citecue_Test_Case {
 
 		$this->assertStringContainsString( 'citecue-test', $all );
 	}
+
+	/**
+	 * The translation hreflang set the plugin prints itself holds the alternate
+	 * slot, so CiteCue's own alternates never stack on top of it.
+	 *
+	 * @return void
+	 */
+	public function test_printed_hreflang_set_leaves_no_duplicate_alternates() {
+		$existing = '<link rel="alternate" hreflang="en" href="https://example.org/a/" />' . "\n"
+			. '<link rel="alternate" hreflang="pl" href="https://example.org/pl/a/" />' . "\n"
+			. '<link rel="alternate" hreflang="x-default" href="https://example.org/a/" />';
+		$block    = '<link data-citecue="alternate" rel="alternate" hreflang="en" href="https://example.org/a/" />'
+			. '<link data-citecue="alternate" rel="alternate" hreflang="pl" href="https://cdn.example/pl/a/" />'
+			. '<meta data-citecue="og" property="og:title" content="Acme" />';
+
+		$all = implode( "\n", Citecue_Seo_Head::merge( $existing, $block ) );
+
+		$this->assertStringNotContainsString( 'rel="alternate"', $all );
+		$this->assertStringContainsString( 'og:title', $all );
+	}
+
+	/**
+	 * Without a printed set, CiteCue's alternates still come through.
+	 *
+	 * @return void
+	 */
+	public function test_alternates_are_kept_when_the_head_has_none() {
+		$block = '<link data-citecue="alternate" rel="alternate" hreflang="pl" href="https://example.org/pl/a/" />';
+
+		$tags = Citecue_Seo_Head::merge( '', $block );
+
+		$this->assertCount( 1, $tags );
+		$this->assertStringContainsString( 'hreflang="pl"', $tags[0] );
+	}
 }

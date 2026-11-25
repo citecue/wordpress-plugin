@@ -28,6 +28,8 @@ class Test_Citecue_Admin_Screen extends Citecue_Test_Case {
 	 */
 	public function set_up() {
 		parent::set_up();
+		// Older cases pin exact capability sets; the language cases live in test-languages.php.
+		$this->plugin->settings->update( array( 'language_pages_enabled' => false ) );
 
 		$this->admin = new Citecue_Admin( $this->plugin );
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );

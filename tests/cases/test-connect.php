@@ -29,6 +29,11 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 	public function set_up() {
 		parent::set_up();
 		$this->connect = new Citecue_Connect( $this->plugin );
+
+		// These cases pin the other capabilities' exact sets; the language
+		// capability has its own cases (test-languages.php, below), and would
+		// otherwise join every set in plain and Polylang mode.
+		$this->plugin->settings->update( array( 'language_pages_enabled' => false ) );
 	}
 
 	/**
@@ -1100,5 +1105,173 @@ class Test_Citecue_Connect extends Citecue_Test_Case {
 		$request = $this->http->last( 'loopback' );
 		$this->assertSame( home_url( '/llms.txt' ), $request['url'] );
 		$this->assertNotEmpty( $this->plugin->crawlers->match( $request['args']['user-agent'] ) );
+	}
+
+	/**
+	 * Re-enables the capability these cases are about (set_up opts out so the
+	 * older cases keep their exact sets).
+	 *
+	 * @return void
+	 */
+	private function opt_in_to_language_pages() {
+		$this->plugin->settings->update( array( 'language_pages_enabled' => true ) );
+	}
+
+	/**
+	 * Plugin 1.4's first connect declares `language_pages` although the local
+	 * content-push switch is still off: the plugin only learns consent from the
+	 * claim response, so gating on it here would make the first connect unable
+	 * to declare. The server enforces consent.
+	 *
+	 * @return void
+	 */
+	public function test_the_first_connect_declares_language_pages() {
+		if ( 'wpml' === Citecue_Languages::mode() ) {
+			$this->markTestSkipped( 'WPML mode does not declare until it is enabled.' );
+		}
+		$this->opt_in_to_language_pages();
+		$this->assertFalse( (bool) $this->plugin->settings->get( 'ingest_enabled' ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertTrue( $sent['language_pages'] );
+		$this->assertContains( 'language_pages', $this->plugin->settings->get( 'capabilities_reported' ) );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * The opt-out checkbox withdraws the capability from the claim.
+	 *
+	 * @return void
+	 */
+	public function test_the_opt_out_removes_language_pages() {
+		$this->opt_in_to_language_pages();
+		$this->plugin->settings->update( array( 'language_pages_enabled' => false ) );
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertFalse( $sent['language_pages'] );
+		$this->assertArrayNotHasKey( 'translation_languages', $sent );
+		$this->assertNotContains( 'language_pages', $this->plugin->settings->get( 'capabilities_reported' ) );
+		$this->assertNull( $this->plugin->settings->get( 'translation_languages_reported' ) );
+	}
+
+	/**
+	 * Plain mode sends no list, so CiteCue accepts any of its languages.
+	 *
+	 * @return void
+	 */
+	public function test_plain_mode_sends_no_language_list() {
+		if ( 'plain' !== Citecue_Languages::mode() ) {
+			$this->markTestSkipped( 'Plain mode only.' );
+		}
+		$this->opt_in_to_language_pages();
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertTrue( $sent['language_pages'] );
+		$this->assertArrayNotHasKey( 'translation_languages', $sent );
+		$this->assertNull( $this->plugin->settings->get( 'translation_languages_reported' ) );
+	}
+
+	/**
+	 * Polylang mode sends the codes that map to one language, and records them.
+	 *
+	 * @return void
+	 */
+	public function test_polylang_mode_sends_and_records_the_list() {
+		if ( ! getenv( 'CITECUE_WITH_POLYLANG' ) ) {
+			$this->markTestSkipped( 'Needs CITECUE_WITH_POLYLANG=1.' );
+		}
+		$this->opt_in_to_language_pages();
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+
+		$this->connect->claim( 'one-time-code' );
+
+		$sent = json_decode( $this->http->last( 'connect' )['args']['body'], true );
+		$this->assertSame( array( 'en', 'pl' ), $sent['translation_languages'] );
+		$this->assertSame( array( 'en', 'pl' ), $this->plugin->settings->get( 'translation_languages_reported' ) );
+		$this->assertFalse( $this->plugin->settings->needs_seo_head_reconnect() );
+	}
+
+	/**
+	 * A failed claim records no list.
+	 *
+	 * @return void
+	 */
+	public function test_a_failed_claim_records_no_language_list() {
+		$this->opt_in_to_language_pages();
+		$this->plugin->settings->update( array( 'translation_languages_reported' => null ) );
+		$this->http->queue( 'connect', 400, wp_json_encode( array( 'error' => 'invalid_code' ) ) );
+
+		$this->connect->claim( 'nonsense' );
+
+		$this->assertNull( $this->plugin->settings->get( 'translation_languages_reported' ) );
+	}
+
+	/**
+	 * Disconnecting forgets the list with the other reported state.
+	 *
+	 * @return void
+	 */
+	public function test_disconnect_clears_the_reported_list() {
+		$this->plugin->settings->update( array( 'translation_languages_reported' => array( 'en' ) ) );
+
+		$this->connect->disconnect();
+
+		$this->assertNull( $this->plugin->settings->get( 'translation_languages_reported' ) );
+	}
+
+	/**
+	 * A site whose language list moved since connecting is asked to reconnect,
+	 * and one whose list only came back in another order is not.
+	 *
+	 * @return void
+	 */
+	public function test_a_changed_list_prompts_a_reconnect_but_a_reordered_one_does_not() {
+		if ( ! getenv( 'CITECUE_WITH_POLYLANG' ) ) {
+			$this->markTestSkipped( 'Needs CITECUE_WITH_POLYLANG=1.' );
+		}
+		$this->opt_in_to_language_pages();
+		$this->http->queue( 'connect', 200, $this->claim_payload() );
+		$this->connect->claim( 'one-time-code' );
+		$this->assertSame( '', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		$this->plugin->settings->update( array( 'translation_languages_reported' => array( 'pl', 'en' ) ) );
+		$this->assertSame( '', $this->plugin->settings->seo_head_reconnect_reason() );
+
+		$this->plugin->settings->update( array( 'translation_languages_reported' => array( 'en' ) ) );
+		$this->assertSame( 'languages', $this->plugin->settings->seo_head_reconnect_reason() );
+	}
+
+	/**
+	 * Switching between plain and a translation plugin changes the list from
+	 * absent to present (or back), which is a change.
+	 *
+	 * @return void
+	 */
+	public function test_a_plain_to_translator_switch_prompts_a_reconnect() {
+		$this->opt_in_to_language_pages();
+		$this->configure_delivery( array( 'seo_head_reported' => true ) );
+		$this->plugin->settings->update( array( 'capabilities_reported' => $this->plugin->settings->active_delivery_capabilities() ) );
+
+		if ( 'plain' === Citecue_Languages::mode() ) {
+			// Connected under Polylang, now plain: reported a list, current has none.
+			$this->plugin->settings->update( array( 'translation_languages_reported' => array( 'en', 'pl' ) ) );
+		} else {
+			// Connected plain, now under a translator: reported none.
+			$this->plugin->settings->update( array( 'translation_languages_reported' => null ) );
+		}
+		if ( 'wpml' === Citecue_Languages::mode() ) {
+			$this->markTestSkipped( 'WPML mode does not declare yet, so it has no list.' );
+		}
+
+		$this->assertSame( 'languages', $this->plugin->settings->seo_head_reconnect_reason() );
 	}
 }

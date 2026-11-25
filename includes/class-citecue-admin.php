@@ -296,6 +296,14 @@ class Citecue_Admin {
 				}
 				break;
 
+			case 'language_pages':
+				$message = __( 'this version can receive language versions of your answer pages, but CiteCue does not know that yet. Reconnect CiteCue so it can send language versions of your answer pages to this site.', 'citecue-ai-auto-fix' );
+				break;
+
+			case 'languages':
+				$message = __( 'the languages on this site have changed since you connected, and CiteCue does not know that yet. Until you reconnect, it will plan language versions of your pages for the old list.', 'citecue-ai-auto-fix' );
+				break;
+
 			default:
 				$message = __( 'this site can now add CiteCue’s enriched title, description, OpenGraph and structured data to your live pages, but CiteCue does not know that yet — until you reconnect, it will keep reporting that your fixes do not reach human visitors.', 'citecue-ai-auto-fix' );
 				break;
@@ -789,6 +797,19 @@ class Citecue_Admin {
 							<?php endif; ?>
 						</td>
 					</tr>
+					<?php if ( Citecue_Languages::declarable() ) : ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Language pages', 'citecue-ai-auto-fix' ); ?></th>
+						<td>
+							<input type="hidden" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[language_pages_enabled]" value="0" />
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( Citecue_Settings::OPTION ); ?>[language_pages_enabled]" value="1" <?php checked( (bool) $settings->get( 'language_pages_enabled' ) ); ?> />
+								<?php esc_html_e( 'Let CiteCue send answer pages in your site’s other languages.', 'citecue-ai-auto-fix' ); ?>
+							</label>
+							<p class="description"><?php esc_html_e( 'Takes effect after you reconnect.', 'citecue-ai-auto-fix' ); ?></p>
+						</td>
+					</tr>
+					<?php endif; ?>
 					<tr>
 						<th scope="row"><label for="citecue_ingest_status"><?php esc_html_e( 'Maximum status', 'citecue-ai-auto-fix' ); ?></label></th>
 						<td>

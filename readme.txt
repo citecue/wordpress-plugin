@@ -4,7 +4,7 @@ Tags: ai, ai-crawlers, gptbot, ai-seo, woocommerce
 Requires at least: 5.8
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -140,6 +140,9 @@ Yes. Store pages (cart, checkout, account, all WooCommerce endpoints) are never 
 
 == Upgrade Notice ==
 
+= 1.4.0 =
+Lets CiteCue add language versions of your answer pages, using Polylang or plain child pages. Sites already connected need one reconnect for it to start. Settings → CiteCue will ask.
+
 = 1.3.0 =
 Tells CiteCue when Maximum status is Published, so posts you schedule in CiteCue's Calendar are published live rather than sent as drafts. Sites already set to Published need one reconnect. Settings → CiteCue will ask.
 
@@ -162,6 +165,13 @@ Adds enriched page metadata for live pages. Existing connections need one reconn
 The plugin folder is now citecue-ai-auto-fix. If you installed 1.0.0 by uploading the zip from GitHub, delete the old citecue folder after updating — your settings and connection are stored in the database and carry over untouched.
 
 == Changelog ==
+
+= 1.4.0 =
+* New: language pages. CiteCue can now add translated versions of your answer pages. With Polylang (3.x) each one joins the main page's translation group in its language. Without a translation plugin it is created as a child page at `/<main-page>/<language>/`, and the plugin prints the page's `lang` and `hreflang` links for you.
+* A new "Language pages" setting lets you opt out. It is on by default and appears only where your site can take language pages. Like the other connection settings, a change takes effect after you reconnect.
+* Adding or removing a language in Polylang now asks for a reconnect, because CiteCue learns your languages when the site connects.
+* TranslatePress, Weglot and MultilingualPress keep every language on one post, so language pages stay off on sites that use them. WPML support is built but not switched on yet.
+* Existing connections need one reconnect to start receiving language pages.
 
 = 1.3.0 =
 * Connecting now tells CiteCue whether this site publishes pushed posts live. When Maximum status is Published, CiteCue's Calendar defaults its posts to published instead of draft. Draft and Pending keep them as drafts, as before. There is no new setting: the flag follows Maximum status, so it can never promise more than the site allows, and the cap still has the final say on every post.

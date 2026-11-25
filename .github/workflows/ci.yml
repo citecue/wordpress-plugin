@@ -124,6 +124,13 @@ jobs:
       - name: Run the test suite as a multisite network
         run: composer run test:multisite
 
+      # WPML is commercial, so its filters are answered by an in-memory stub.
+      # One leg is enough: the WPML adapter has no PHP- or WordPress-version
+      # specific code.
+      - name: Run the test suite with the WPML stub active
+        if: matrix.php == '8.4' && matrix.wp == 'latest'
+        run: composer run test:wpml
+
   test-woocommerce:
     name: WooCommerce integration
     runs-on: ubuntu-latest
@@ -168,3 +175,45 @@ jobs:
 
       - name: Run the product-push tests against a real WooCommerce
         run: composer run test:core
+
+  test-polylang:
+    name: Polylang integration
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: 1
+          MARIADB_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=6
+
+    env:
+      WP_TESTS_DB_HOST: 127.0.0.1:3306
+      WP_TESTS_DB_NAME: wordpress_test
+      WP_TESTS_DB_USER: root
+      WP_TESTS_DB_PASSWORD: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mysqli
+          coverage: none
+          tools: composer
+
+      # Polylang is a pinned dev dependency, so this installs it too.
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run the suite against a real Polylang (languages en and pl)
+        run: composer run test:polylang

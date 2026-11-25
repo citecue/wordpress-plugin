@@ -48,10 +48,28 @@ if ( is_multisite() ) {
 }
 
 foreach ( $citecue_site_ids as $citecue_site_id ) {
+	if ( is_multisite() ) {
+		switch_to_blog( $citecue_site_id );
+	}
+	// Translation lock rows (citecue_tlock_<hash>) a dead request never released.
+	$citecue_lock_rows = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s",
+			$wpdb->esc_like( 'citecue_tlock_' ) . '%'
+		)
+	);
+	// delete_option() rather than one DELETE, so the object cache forgets them too.
+	foreach ( $citecue_lock_rows as $citecue_lock_row ) {
+		delete_option( $citecue_lock_row );
+	}
+	if ( is_multisite() ) {
+		restore_current_blog();
+	}
+
 	delete_metadata( 'user', 0, $wpdb->get_blog_prefix( $citecue_site_id ) . $citecue_dismissal_key, '', true );
 }
 
-unset( $citecue_dismissal_key, $citecue_site_ids, $citecue_site_id );
+unset( $citecue_dismissal_key, $citecue_site_ids, $citecue_site_id, $citecue_lock_rows, $citecue_lock_row );
 
 delete_transient( 'citecue_circuit' );
 delete_transient( 'citecue_ingest_rate' );
