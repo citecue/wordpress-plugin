@@ -160,7 +160,7 @@ Signatures are **single-use**: replaying a captured request is rejected with `40
 | `title` | string, required | |
 | `content` | string, required | Post body HTML (sanitized with `wp_kses_post`) |
 | `excerpt` | string | |
-| `slug` | string | |
+| `slug` | string | Ignored on a translation push (see "Language pages") |
 | `status` | `draft`\|`pending`\|`publish` | Capped by the "Maximum status" setting (default `draft`). With the cap at Published, the plugin tells CiteCue so at connect (`publish_live`) |
 | `type` | `post`\|`page`\|`product` | Default from settings; `product` requires WooCommerce |
 | `categories` | string[] | Term names, created if missing (posts → `category`, products → `product_cat`) |
@@ -170,6 +170,9 @@ Signatures are **single-use**: replaying a captured request is rejected with `40
 | `meta_description` | string | Stored as `_citecue_meta_description`; printed as `<meta name="description">` unless an SEO plugin is active |
 | `source` | string | Provenance label, e.g. `content_brief:opp_123` |
 | `force` | bool | Overwrite even if the post was edited in WordPress since the last push (otherwise → `409 citecue_edited_locally`) |
+| `language` | string | ISO 639-1 code (`pl`). On a new post it becomes the post's language; on an existing one it is applied only if the post has none; a code the site lacks is ignored on an ordinary push. Required on a translation push |
+| `translation_of` | string | The **main page's** `external_id`: files this page as its translation (see "Language pages") |
+| `translation_of_language` | string | The main page's ISO 639-1 code; sent with `translation_of` |
 
 **Example**
 
@@ -186,7 +189,37 @@ curl -X POST https://your-site.com/wp-json/citecue/v1/content \
   -d "$BODY"
 ```
 
-Responses: `201` created / `200` updated (`{created, updated, post_id, status, permalink, edit_link}`), `400` product push without WooCommerce, `401` bad signature or stale timestamp, `403` ingest disabled, `409` edited locally / SKU exists without `force` / type conflict, `410` push was trashed in WordPress, `429` rate-limited (120/hour, filterable).
+Responses: `201` created / `200` updated (`{created, updated, post_id, status, permalink, edit_link}`), `400` product push without WooCommerce, `401` bad signature or stale timestamp, `403` ingest disabled, `409` edited locally / SKU exists without `force` / type conflict, `410` push was trashed in WordPress, `429` rate-limited (120/hour, filterable). Every success also answers `language`: the ISO code the post now carries (or `null`).
+
+### Language pages
+
+A push carrying `translation_of` files the page as a language version of a main page CiteCue pushed earlier, instead of creating an unrelated post. The page is always a `page`, and its `slug` is ignored: the language plugin or the plain-mode child path decides the address. Pushing the same `external_id` again updates the same page.
+
+| Mode | What happens |
+|---|---|
+| Polylang (3.x) | The page is created in its language and joined to the main page's translation group |
+| WPML | Implemented against WPML's public API but **not yet enabled**: the plugin does not declare `language_pages` on a WPML site until it has been run against real WPML |
+| Plain (no translation plugin) | The page becomes a child of the main page at `/<main-slug>/<lang>/`. Because it is a real child page, themes that build menus automatically (`wp_page_menu`, page-list widgets) may list it |
+
+Errors on this path:
+
+| Status | `code` | Meaning |
+|---|---|---|
+| 400 | `citecue_language_unavailable` | This site has no language for the page (or a code is not ISO 639-1) |
+| 409 | `citecue_translation_parent_missing` | The main page is not on this site |
+| 409 | `citecue_translation_parent_language` | The main page is in another language here than the request says |
+| 409 | `citecue_translation_conflict` | `data.reason` is `group` (the main page already has a page in that language) or `meta_mismatch` (this `external_id` is filed under another main page or language) |
+| 500 | `citecue_translation_link_failed` | The page could not be linked to its main page; the plugin rolled the new page back |
+| 503 | `citecue_busy` | Another push for the same main page is running; send it again |
+
+Notes:
+
+- **One push per main page at a time.** Pushes into one group take a lock keyed on the main page. A push waits up to 3 s for a busy group before answering `503 citecue_busy`; change the wait with the `citecue_translation_lock_wait` filter (seconds; `0` fails immediately). A lock left by a crashed request expires after 30 s.
+- **Plain mode prints its own language signals.** On the main page and its children the plugin sets `<html lang>` (and `og:locale` where it prints one) and adds `hreflang` alternates for every member of the group. Polylang and WPML print these themselves, so the plugin adds nothing there.
+- **Page caches.** After a push the plugin cleans WordPress's own post cache for every member of the group. A full-page caching plugin or CDN is outside that: it may serve a stale `<head>` (hreflang, `lang`) until its entry expires or you purge it.
+- **Deleting the main page.** Permanently deleting a main page in plain mode re-parents its language children (WordPress core behaviour for child pages); they stay on the site, no longer under `/<main-slug>/`.
+- **Ineligible sites.** TranslatePress, Weglot and MultilingualPress keep every language on one post (or one site per language), so there is no separate page to push: with any of them active the plugin does not declare `language_pages`.
+- **The "Language pages" setting** (Settings → CiteCue, shown only where the site can take language pages; on by default) lets you opt out. CiteCue learns the setting and the language list only from the connect handshake, so a change takes effect after you reconnect; the settings screen asks for it.
 
 There is also a public handshake endpoint: `GET /wp-json/citecue/v1/health` → `{plugin, version, delivery, ingest, woocommerce}`.
 
@@ -225,6 +258,7 @@ With WooCommerce active:
 | `citecue_seo_head_schedule_budget` | filter | Max metadata refreshes queued per minute (default 20) |
 | `citecue_ingest_postarr` | filter | Adjust the post array before insert/update |
 | `citecue_ingest_rate_limit` | filter | Ingest requests allowed per hour (default 120) |
+| `citecue_translation_lock_wait` | filter | Seconds a translation push waits for a busy main-page group before answering `503 citecue_busy` (default 3) |
 | `citecue_output_meta_description` | filter | Control the meta-description tag for pushed content |
 
 ## Performance
@@ -286,6 +320,8 @@ Point it at a different database with `WP_TESTS_DB_NAME`, `WP_TESTS_DB_USER`, `W
 |---|---|
 | `composer test:core` | Everything, with no WooCommerce present |
 | `composer test:woocommerce` | Adds a minimal WooCommerce stand-in so the store-page exclusion rules are exercised |
+| `composer test:polylang` | Runs the suite with a real Polylang loaded (pinned in `composer.json`; `composer install` fetches it) so the Polylang translation path is exercised |
+| `composer test:wpml` | Runs the suite with a WPML stand-in (`tests/includes/class-citecue-wpml-stub.php`); it proves the calls the plugin makes, not WPML's behaviour |
 | `CITECUE_WITH_WOOCOMMERCE=1 composer test:core` | Product pushes against a real WooCommerce — needs `composer require --dev wpackagist-plugin/woocommerce` |
 
 Other commands:

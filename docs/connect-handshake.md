@@ -46,11 +46,19 @@ Request body:
   "seo_head": true,
   "body_blocks": true,
   "seo_head_baseline": true,
-  "publish_live": false
+  "publish_live": false,
+  "language_pages": true,
+  "translation_languages": ["de", "pl"]
 }
 ```
 
-The last five are capability flags: flat booleans, re-sent on every claim, and a missing one means NO. `publish_live` is true only when the site's Maximum status (`ingest_post_status`) is `publish`; CiteCue may then default content pushes to `status: publish`. The plugin's cap still applies to every push.
+The flags from `woocommerce` through `language_pages` are capability flags: flat booleans, re-sent on every claim, and a missing one means NO. `publish_live` is true only when the site's Maximum status (`ingest_post_status`) is `publish`; CiteCue may then default content pushes to `status: publish`. The plugin's cap still applies to every push.
+
+`language_pages` is true when the site can take language versions of answer pages and the customer has not switched the "Language pages" setting off. That means: no TranslatePress, Weglot or MultilingualPress (they keep all languages on one post); `page` is a translated post type under Polylang; and in Polylang mode at least one language is configured. WPML is built but gated off (`Citecue_Languages::WPML_ENABLED`), so a WPML site does not declare it yet. Plain sites (no translation plugin) declare it.
+
+`translation_languages` is sent **only** with `language_pages` and **only** in Polylang/WPML mode: the site's configured languages as a sorted, deduplicated list of ISO 639-1 codes (a Polylang slug such as `pl-pl` is mapped to `pl`). In plain mode it is omitted, and CiteCue may plan any of its own languages. CiteCue holds the list from the claim only, so the plugin stores what it sent and compares it with the current list: a language added or removed, or a switch between plain and Polylang, makes Settings → CiteCue show a reconnect notice. Reordering languages does not.
+
+Consent is enforced by CiteCue, not by the plugin. The plugin learns whether the customer allowed content pushes only from this claim's response (`ingest`), so it cannot gate `language_pages` on its local ingest flag without making a first connect impossible. CiteCue must refuse to push language pages to a site that did not consent to content pushes.
 
 Steps:
 
